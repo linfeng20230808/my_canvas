@@ -645,6 +645,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
           visualPreset: 'lu_chen',
           colorPalette: ['#18181B', '#F59E0B', '#38BDF8', '#78350F'],
           threeViewVerified: true,
+          generatedImageUrl: 'https://file2.aitohumanize.com/file/df73edb43e954e9c90a80c577dda41c0.jpeg',
         },
       },
       {
@@ -665,6 +666,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
           visualPreset: 'pawnshop',
           colorPalette: ['#27272A', '#F59E0B', '#EF4444', '#A1A1AA'],
           threeViewVerified: true,
+          generatedImageUrl: 'https://file5.aitohumanize.com/file/008b6fb4500a49eea3c19fdf90993792.jpeg',
         },
       },
       {
@@ -906,7 +908,11 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
             cameraVectorLabel: '[Pull out, Tilt up] · 24mm',
             focalCaption: '黄金前3秒：靶场闪回切荒凉四车道戈壁公路',
           },
-          lastRenderedAt: '实跑完成 (纯提示词)',
+          generatedImageUrl: 'https://file2.aitohumanize.com/file/df73edb43e954e9c90a80c577dda41c0.jpeg',
+          generatedVideoUrl: 'https://file4.aitohumanize.com/file/fdf1e95fc98345129077cc1a1bffa19c.mp4',
+          videoStatus: 'succeeded',
+          videoProgress: 100,
+          lastRenderedAt: '已生成实拍图与 MiniMax H3 视频',
         },
       },
       {
@@ -947,7 +953,10 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
             cameraVectorLabel: '[Push in, Orbit] · 50mm',
             focalCaption: '0.01%巧夺天工保底焊死 · 金光映亮瞳孔',
           },
-          lastRenderedAt: '实跑完成 (纯提示词)',
+          generatedVideoUrl: 'https://file5.aitohumanize.com/file/dd676ff58b5a40998ea1c4f708fcf2b9.mp4',
+          videoStatus: 'succeeded',
+          videoProgress: 100,
+          lastRenderedAt: '已生成 Agnes 2.5 实拍视频',
         },
       },
       {
@@ -1336,194 +1345,5 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
       },
     ],
   },
-  {
-    id: 'template-memory-pawnshop',
-    name: '《赛博霓虹：记忆当铺》第1集',
-    episodeTitle: 'EP01 · 雨夜赎回的第七只琥珀瓶',
-    description:
-      '悬疑情感奇幻短剧 · 含完整角色四视图锁脸锚点、场景光影锚点、第1场爽点剧本与3个已连线 9:16 竖屏分镜',
-    nodes: [
-      {
-        id: 'group-assets',
-        type: 'group',
-        position: { x: 40, y: 60 },
-        width: 340,
-        height: 760,
-        data: {
-          title: '01 · 跨镜头一致性资产锚点区 (Asset Lock)',
-          groupDescription: '四视图锁脸与空间色温基准 · 单击卡片可唤醒生成框与锚点词',
-        },
-      },
-      {
-        id: 'group-storyboards',
-        type: 'group',
-        position: { x: 820, y: 60 },
-        width: 980,
-        height: 760,
-        data: {
-          title: '03 · 第一场 9:16 竖屏视觉分镜序列 (Storyboard Sequence)',
-          groupDescription: '纯净画面卡片模式 · 单击任意分镜卡片即可展开底部生成框',
-        },
-      },
-      {
-        id: 'node-char-luchen',
-        type: 'character',
-        position: { x: 60, y: 115 },
-        width: 280,
-        parentGroupId: 'group-assets',
-        createdBySkillId: 'skill-character-3view-lock',
-        data: {
-          title: '陆沉 · 记忆当铺掌柜',
-          subtitle: '核心男主 · 四视图骨相已锁死',
-          roleType: '核心男主 (@Image1)',
-          consistencyPrompt:
-            '28yo East Asian male, cold sharp eyes, tailored charcoal trench coat, vintage silver pocket watch on chain, clean jawline, film noir warm-cold rim light',
-          costumeDetails: '深炭灰剪裁风衣 · 银质旧怀表 · 黑曜石袖扣',
-          lightingMood: '45° 琥珀台灯暖光 + 冷雨侧逆光',
-          visualPreset: 'lu_chen',
-          colorPalette: ['#09090B', '#27272A', '#F59E0B', '#A1A1AA'],
-          threeViewVerified: true,
-        },
-      },
-      {
-        id: 'node-char-suwan',
-        type: 'character',
-        position: { x: 60, y: 365 },
-        width: 280,
-        parentGroupId: 'group-assets',
-        createdBySkillId: 'skill-character-3view-lock',
-        data: {
-          title: '苏晚 · 失忆钢琴师',
-          subtitle: '核心女主 · 四视图骨相已锁死',
-          roleType: '核心女主 (@Image1)',
-          consistencyPrompt:
-            '25yo East Asian female pianist, melancholic expressive eyes, ivory modern-vintage trench over dark dress, rain droplets on hair, holding cracked amber glass vial',
-          costumeDetails: '米白复古风衣 · 透明雨伞 · 裂纹琥珀记忆瓶',
-          lightingMood: '冷蓝雨夜散射光 + 记忆瓶金光映射',
-          visualPreset: 'su_wan',
-          colorPalette: ['#FAFAFA', '#38BDF8', '#F59E0B', '#18181B'],
-          threeViewVerified: true,
-        },
-      },
-      {
-        id: 'node-scene-pawnshop',
-        type: 'scene_asset',
-        position: { x: 60, y: 615 },
-        width: 280,
-        parentGroupId: 'group-assets',
-        createdBySkillId: 'skill-scene-spatial-anchor',
-        data: {
-          title: '第8号记忆当铺内景',
-          subtitle: '内景/雨夜 · 3200K/6500K 空间锚点',
-          roleType: '主场景锚点 (@Image2)',
-          consistencyPrompt:
-            'Antique cyber-noir memory pawnshop interior at night, towering mahogany shelves filled with glowing amber glass vials, brass desk lamp on counter, rain streaking storefront window',
-          costumeDetails: '红木柜台 · 千支发光记忆瓶架 · 黄铜台灯',
-          lightingMood: '内景琥珀暖光 (3200K) vs 窗外暴雨冷蓝 (6500K)',
-          visualPreset: 'pawnshop',
-          colorPalette: ['#451A03', '#F59E0B', '#09090B', '#0284C7'],
-          threeViewVerified: true,
-        },
-      },
-      {
-        id: 'node-script-sc01',
-        type: 'script',
-        position: { x: 430, y: 180 },
-        width: 340,
-        createdBySkillId: 'skill-golden-3s-script',
-        data: {
-          title: '第 1 场：雨夜赎回的裂痕记忆',
-          subtitle: 'EP01-SC01 · 内/外景 · 记忆当铺 · 夜',
-          sceneNumber: 'EP01-SC01',
-          location: '深巷第8号记忆当铺',
-          timeOfDay: '暴雨深夜',
-          hookPoint:
-            '【黄金前3秒】苏晚浑身湿透推开当铺木门，将一只布满裂纹、正渗出金色流光的琥珀记忆瓶重重拍在红木柜台上！',
-          reversalPoint:
-            '【结尾反转】陆沉用银怀表触碰记忆瓶，浮现出的“被典当记忆”里，亲手抹去苏晚记忆的人竟是陆沉自己！',
-          scriptBody:
-            '窗外电闪雷鸣。苏晚收起透明雨伞，颤抖的指尖按着那只即将碎裂的7号琥珀瓶。\n陆沉从暗影中抬眸，手中银质怀表链轻轻摇晃。\n当怀表贴近玻璃瓶裂口，金色雾气骤然化作五年前雨夜的残影——陆沉瞳孔骤缩。',
-          dialogues: [
-            {
-              speaker: '苏晚',
-              emotion: 'FACS: 眉心紧蹙(AU4)+眼眶含泪却眼神决绝',
-              line: '“掌柜的，哪怕今晚付出十年寿命，我也要赎回被他偷走的那一晚。”',
-            },
-            {
-              speaker: '陆沉',
-              emotion: 'FACS: 瞳孔微震+指尖微不可察地一颤',
-              line: '“瓶身已经裂了。强行开启，你可能会永远困在那段记忆里。”',
-            },
-          ],
-        },
-      },
-      {
-        id: 'node-pawn-shot-01',
-        type: 'storyboard',
-        position: { x: 845, y: 115 },
-        width: 280,
-        parentGroupId: 'group-storyboards',
-        createdBySkillId: 'skill-seedance-director-suite',
-        data: {
-          title: 'SHOT 01 · 雨巷推门裂瓶特写',
-          subtitle: '黄金前3秒钩子 · 竖屏 9:16',
-          shotNumber: 'SHOT 01',
-          aspectRatio: '9:16',
-          shotSize: '近景转特写 (MS → CU)',
-          cameraMove: '[Push in, Tilt down]',
-          focalLength: '35mm f/1.4 Anamorphic',
-          videoModelTarget: 'seedance_2_0',
-          visualPrompt:
-            '[Su Wan (@Image1: 25yo female pianist, ivory trench coat, rain droplets)] + [slams cracked amber glass vial onto mahogany counter as golden mist seeps out, FACS AU4 brow furrow & fierce gaze] + in [Antique Memory Pawnshop (@Image2: dark wood counter, warm brass lamp, rain window)] + Camera: [Rapid Push-in + Tilt down, Fast speed, Subject Lock: hand & vial]; Lens: [35mm f/1.4 Anamorphic]; Stability: [Handheld tension] + Style: [Chiaroscuro film noir, 3200K vs 6500K] + Avoid: [morphing fingers, blurry glass, off-model coat]',
-          videoPrompts: {
-            minimax_h3:
-              '[Push in, Tilt down] Subject_Lock: (Su Wan, 25yo East Asian pianist in rain-soaked ivory trench coat). Position_Lock: (Left-foreground facing right counter). At 00:00.000, the camera rapidly pushes in from her rain-streaked face down to her trembling fingers slamming a cracked glowing amber vial onto the mahogany counter.',
-            seedance_2_0:
-              '[Su Wan (@Image1: 25yo female pianist, ivory trench coat, rain droplets)] + [slams cracked amber glass vial onto mahogany counter as golden mist seeps out, FACS AU4 brow furrow & fierce gaze] + in [Antique Memory Pawnshop (@Image2: dark wood counter, warm brass lamp, rain window)] + Camera: [Rapid Push-in + Tilt down, Fast speed, Subject Lock: hand & vial]; Lens: [35mm f/1.4 Anamorphic]; Stability: [Handheld tension] + Style: [Chiaroscuro film noir, 3200K vs 6500K] + Avoid: [morphing fingers, blurry glass, off-model coat]',
-            seedance_2_5:
-              'Refs: [@Image1 (Su Wan Face/Outfit Lock), @Image2 (Pawnshop Counter Lock), @Audio1 (Heavy Rain & Glass Slam Sync)] | [站位声明: 苏晚居左前景面向右柜台] | Shot 1 (0.0s - 1.5s) [Visual Hook]: Medium close-up, Su Wan pushes open rain-drenched door. → Shot 2 (1.5s - 3.0s) [Impact]: Whip-tilt down to extreme close-up as her hand slams the cracked #7 amber vial onto counter.',
-          },
-          dialogueSnippet: '“哪怕今晚付出十年寿命，我也要赎回被偷走的那一晚。”',
-          speakerName: '苏晚',
-          durationSec: 3.0,
-          compositionType: 'rain_umbrella_cu',
-          customSvgElements: {
-            primaryHue: '#38BDF8',
-            secondaryHue: '#09090B',
-            keyLightAngle: '窗外冷雨蓝光 + 瓶身琥珀底光',
-            silhouetteType: 'single_closeup',
-            cameraVectorLabel: '[Push in, Tilt down] · 35mm',
-            focalCaption: '前3秒视觉钩子：裂纹琥珀记忆瓶渗出金光',
-          },
-          lastRenderedAt: '已同步上游 2 个锚点',
-        },
-      },
-    ],
-    edges: [
-      {
-        id: 'edge-char1-script',
-        sourceNodeId: 'node-char-luchen',
-        targetNodeId: 'node-script-sc01',
-        relationType: 'character_ref',
-      },
-      {
-        id: 'edge-char2-script',
-        sourceNodeId: 'node-char-suwan',
-        targetNodeId: 'node-script-sc01',
-        relationType: 'character_ref',
-      },
-      {
-        id: 'edge-scene-script',
-        sourceNodeId: 'node-scene-pawnshop',
-        targetNodeId: 'node-script-sc01',
-        relationType: 'scene_ref',
-      },
-      {
-        id: 'edge-script-shot1',
-        sourceNodeId: 'node-script-sc01',
-        targetNodeId: 'node-pawn-shot-01',
-        relationType: 'script_breakdown',
-      },
-    ],
-  },
 ];
+

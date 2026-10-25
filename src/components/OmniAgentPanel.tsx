@@ -23,6 +23,8 @@ import {
   Wrench,
   PanelRightClose,
   BrainCircuit,
+  AlertTriangle,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   CanvasNode,
@@ -30,6 +32,7 @@ import {
   AgentChatMessage,
   AgentModelOption,
   UploadedAttachment,
+  AxisViolationItem,
 } from '../types/canvas';
 
 interface OmniAgentPanelProps {
@@ -42,6 +45,7 @@ interface OmniAgentPanelProps {
   messages: AgentChatMessage[];
   isRunning: boolean;
   darkMode: boolean;
+  axisViolations?: AxisViolationItem[];
   onSelectModel: (modelId: string) => void;
   onToggleMountSkill: (skillId: string) => void;
   onExecuteAgentPrompt: (prompt: string, attachments: UploadedAttachment[]) => void;
@@ -50,6 +54,8 @@ interface OmniAgentPanelProps {
   onFocusNode: (nodeId: string) => void;
   onToggleCollapse?: () => void;
   onOpenSettings?: () => void;
+  onRunAxisInspection?: () => void;
+  onAutoFixAxisViolations?: () => void;
 }
 
 export const OmniAgentPanel: React.FC<OmniAgentPanelProps> = ({
@@ -61,6 +67,7 @@ export const OmniAgentPanel: React.FC<OmniAgentPanelProps> = ({
   messages,
   isRunning,
   darkMode,
+  axisViolations = [],
   onSelectModel,
   onToggleMountSkill,
   onExecuteAgentPrompt,
@@ -69,6 +76,8 @@ export const OmniAgentPanel: React.FC<OmniAgentPanelProps> = ({
   onFocusNode,
   onToggleCollapse,
   onOpenSettings,
+  onRunAxisInspection,
+  onAutoFixAxisViolations,
 }) => {
   const [inputPrompt, setInputPrompt] = useState('');
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
@@ -509,6 +518,64 @@ export const OmniAgentPanel: React.FC<OmniAgentPanelProps> = ({
         )}
       </div>
 
+      {/* 2B. Live 180-Degree Axis & Disconnected Storyboard Auto-Inspector Status Strip */}
+      <div
+        className={`px-4 py-2 border-b shrink-0 transition-colors ${
+          axisViolations.length > 0
+            ? darkMode
+              ? 'bg-red-950/55 border-red-800/80 text-red-100'
+              : 'bg-red-50 border-red-200 text-red-900'
+            : darkMode
+            ? 'bg-emerald-950/25 border-zinc-800 text-emerald-300'
+            : 'bg-emerald-50/70 border-slate-200 text-emerald-800'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0 text-[11px] font-medium">
+            {axisViolations.length > 0 ? (
+              <>
+                <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0 animate-pulse" />
+                <span className="truncate">
+                  180°轴线自动报警：检测到 {axisViolations.length} 处分镜断连且跳轴
+                </span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="truncate">
+                  180°轴线实时巡检：全部分镜连线与空间轴线已对齐
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {axisViolations.length > 0 && onAutoFixAxisViolations && (
+              <button
+                type="button"
+                onClick={onAutoFixAxisViolations}
+                className="px-2 py-0.5 rounded bg-red-500 text-white text-[10px] font-semibold hover:bg-red-400 transition-colors cursor-pointer"
+              >
+                一键修复跳轴与连线
+              </button>
+            )}
+            {onRunAxisInspection && (
+              <button
+                type="button"
+                onClick={onRunAxisInspection}
+                className={`px-2 py-0.5 rounded border text-[10px] font-mono transition-colors cursor-pointer ${
+                  darkMode
+                    ? 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800'
+                    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                巡检
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* 3. Main Agent Conversation Stream with AI Studio Style Action History & Thinking Trace */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
         {messages.map((msg) => {
@@ -742,8 +809,89 @@ export const OmniAgentPanel: React.FC<OmniAgentPanelProps> = ({
 
                 <p className="whitespace-pre-line">{msg.content}</p>
 
+                {/* 180-Degree Axis Violation Alarm Interactive Details */}
+                {msg.isAxisAlarm && msg.axisViolations && msg.axisViolations.length > 0 && (
+                  <div
+                    className={`mt-3 p-3 rounded-xl border space-y-2.5 ${
+                      darkMode
+                        ? 'bg-red-950/45 border-red-800/80 text-red-100'
+                        : 'bg-red-50 border-red-200 text-red-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                        <span>180° 轴线逻辑违例明细 ({msg.axisViolations.length} 组)</span>
+                      </span>
+                      {onAutoFixAxisViolations && (
+                        <button
+                          type="button"
+                          onClick={onAutoFixAxisViolations}
+                          className="px-2.5 py-1 rounded-lg bg-red-500 text-white text-[10px] font-semibold hover:bg-red-400 transition-colors cursor-pointer"
+                        >
+                          ⚡ 一键修复跳轴并补齐连线
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      {msg.axisViolations.map((v) => (
+                        <div
+                          key={v.id}
+                          className={`p-2 rounded-lg border text-[11px] space-y-1.5 ${
+                            darkMode
+                              ? 'bg-zinc-950/90 border-red-900/70 text-zinc-200'
+                              : 'bg-white border-red-200 text-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 font-mono text-[10px]">
+                            <span className="font-bold text-red-400">
+                              {v.sourceShotNumber} → {v.targetShotNumber} (未连线 + 位置跳轴)
+                            </span>
+                            <span className="opacity-75">
+                              ΔX={v.deltaX}px · ΔY={v.deltaY}px
+                            </span>
+                          </div>
+                          <p className="text-[11px] leading-snug">{v.reason}</p>
+                          <p
+                            className={`text-[10px] font-mono ${
+                              darkMode ? 'text-amber-300' : 'text-amber-700'
+                            }`}
+                          >
+                            修复建议：{v.fixSuggestion}
+                          </p>
+                          <div className="flex items-center gap-1.5 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => onFocusNode(v.sourceShotId)}
+                              className={`px-2 py-0.5 rounded border text-[10px] font-medium cursor-pointer ${
+                                darkMode
+                                  ? 'bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800'
+                                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              定位 {v.sourceShotNumber}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onFocusNode(v.targetShotId)}
+                              className={`px-2 py-0.5 rounded border text-[10px] font-medium cursor-pointer ${
+                                darkMode
+                                  ? 'bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800'
+                                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              定位 {v.targetShotNumber}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Spawned Canvas Nodes Jump Links */}
-                {msg.spawnedNodeIds && msg.spawnedNodeIds.length > 0 && (
+                {msg.spawnedNodeIds && msg.spawnedNodeIds.length > 0 && !msg.isAxisAlarm && (
                   <div
                     className={`mt-3 pt-2.5 border-t flex flex-wrap gap-1.5 ${
                       darkMode ? 'border-zinc-800' : 'border-slate-200'

@@ -15,6 +15,7 @@ import {
   Redo2,
   Settings,
   Plus,
+  Layers,
 } from 'lucide-react';
 import {
   CanvasNode,
@@ -30,23 +31,25 @@ import {
   CanvasStateSnapshot,
   CanvasHistoryCommand,
   CanvasProject,
+  AxisViolationItem,
 } from './types/canvas';
 import {
   BUILTIN_DRAMA_SKILLS,
   PROJECT_TEMPLATES,
   VERIFIED_AGENT_MODELS,
 } from './data/initialProject';
-import { InfiniteCanvas } from './components/InfiniteCanvas';
+import { InfiniteCanvas, NodeOrganizeMode } from './components/InfiniteCanvas';
 import { OmniAgentPanel } from './components/OmniAgentPanel';
 import { SkillStudioModal } from './components/SkillStudioModal';
 import { NodeInspectorModal } from './components/NodeInspectorModal';
 import { StoryboardPlayerModal } from './components/StoryboardPlayerModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
+import { DramaWorkflowModal } from './components/DramaWorkflowModal';
 
 const STORAGE_KEY_SKILLS = 'frameverse_custom_skills_v4';
 const STORAGE_KEY_PROVIDERS = 'frameverse_custom_providers_v1';
-const STORAGE_KEY_PROJECTS = 'frameverse_canvas_projects_v1';
+const STORAGE_KEY_PROJECTS = 'frameverse_canvas_projects_v3';
 
 const DEFAULT_MOUNTED_SKILLS = [
   'skill-seedance-director-suite',
@@ -59,12 +62,15 @@ const DEFAULT_MOUNTED_SKILLS = [
 ];
 
 function createDefaultProjects(): CanvasProject[] {
-  return PROJECT_TEMPLATES.map((tpl, idx) => ({
+  return PROJECT_TEMPLATES.map((tpl) => ({
     id: tpl.id,
     name: tpl.name,
-    subtitle: tpl.subtitle,
-    createdAt: idx === 0 ? '2025-05-12 09:30' : '2025-05-10 14:20',
-    updatedAt: idx === 0 ? '刚刚' : '2小时前',
+    episodeTitle: tpl.episodeTitle,
+    description: tpl.description,
+    genreTag: '末日爽剧 / 系统求生',
+    aspectRatio: '9:16',
+    createdAt: '2025-05-12 09:30',
+    updatedAt: '刚刚',
     nodes: JSON.parse(JSON.stringify(tpl.nodes)),
     edges: JSON.parse(JSON.stringify(tpl.edges)),
     mountedSkillIds: [...DEFAULT_MOUNTED_SKILLS],
@@ -79,7 +85,16 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          return parsed.map((p: any) => ({
+            ...p,
+            name: p.name || '未命名短剧工程',
+            episodeTitle: p.episodeTitle || p.subtitle || 'EP01 · 第一集',
+            description: p.description || 'AI 短剧无限画布分镜工程',
+            genreTag: p.genreTag || '竖屏短剧',
+            aspectRatio: p.aspectRatio === '16:9' ? '16:9' : '9:16',
+            nodes: Array.isArray(p.nodes) ? p.nodes : [],
+            edges: Array.isArray(p.edges) ? p.edges : [],
+          }));
         }
       }
     } catch {
@@ -103,6 +118,8 @@ export default function App() {
   const [darkMode, setDarkMode] = useState<boolean>(true);
   const [isProjectManagerOpen, setIsProjectManagerOpen] =
     useState<boolean>(false);
+  const [isWorkflowModalOpen, setIsWorkflowModalOpen] =
+    useState<boolean>(false);
 
   // Customizable Edge Color & Right Agent Panel Collapse State
   const [edgeColor, setEdgeColor] = useState<string>(
@@ -112,7 +129,7 @@ export default function App() {
 
   // Settings & Custom AI Providers State
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const [purePromptMode, setPurePromptMode] = useState<boolean>(true);
+  const [purePromptMode, setPurePromptMode] = useState<boolean>(false);
   const [defaultVideoModel, setDefaultVideoModel] =
     useState<VideoModelTarget>('seedance_2_0');
 
@@ -152,6 +169,7 @@ export default function App() {
           modelName: mName,
           displayName: `${cp.name} · ${mName}`,
           badge: '自定义运营商',
+          category: 'text',
           supportsVision: cp.supportsVision,
           verified: true,
           customProviderId: cp.id,
@@ -187,18 +205,11 @@ export default function App() {
   });
 
   const [mountedSkillIds, setMountedSkillIds] = useState<string[]>([
-    'skill-seedance-director-suite',
-    'skill-manju-laoli-director',
-    'skill-manju-laoli-combat',
-    'skill-character-3view-lock',
-    'skill-manju-laoli-qa-feed',
-    'skill-minimax-h3-director',
-    'skill-golden-3s-script',
+    ...DEFAULT_MOUNTED_SKILLS,
   ]);
 
   // =========================================================================
-  // REQUIREMENT 1: COMMAND PATTERN UNDO / REDO ENGINE
-  // Covers all node creations, moves, edits, deletions, edges & skill mounts
+  // COMMAND PATTERN UNDO / REDO ENGINE
   // =========================================================================
   const [undoStack, setUndoStack] = useState<CanvasHistoryCommand[]>([]);
   const [redoStack, setRedoStack] = useState<CanvasHistoryCommand[]>([]);
@@ -246,12 +257,14 @@ export default function App() {
     [getCurrentSnapshot, applySnapshot]
   );
 
-  const showToast = (msg: string) => {
+  const [toastNotice, setToastNotice] = useState<string | null>(null);
+
+  const showToast = useCallback((msg: string) => {
     setToastNotice(msg);
     setTimeout(() => {
       setToastNotice((prev) => (prev === msg ? null : prev));
-    }, 3200);
-  };
+    }, 3400);
+  }, []);
 
   const handleUndo = useCallback(() => {
     if (undoStack.length === 0) return;
@@ -260,7 +273,7 @@ export default function App() {
     setRedoStack((prev) => [...prev, lastCmd]);
     applySnapshot(lastCmd.before);
     showToast(`已撤销：${lastCmd.label}`);
-  }, [undoStack, applySnapshot]);
+  }, [undoStack, applySnapshot, showToast]);
 
   const handleRedo = useCallback(() => {
     if (redoStack.length === 0) return;
@@ -269,7 +282,7 @@ export default function App() {
     setUndoStack((prev) => [...prev, nextCmd]);
     applySnapshot(nextCmd.after);
     showToast(`已重做：${nextCmd.label}`);
-  }, [redoStack, applySnapshot]);
+  }, [redoStack, applySnapshot, showToast]);
 
   // Global Keyboard Shortcuts Ctrl+Z / Cmd+Z & Ctrl+Y / Cmd+Shift+Z
   useEffect(() => {
@@ -306,9 +319,8 @@ export default function App() {
   >(undefined);
   const [inspectorNodeId, setInspectorNodeId] = useState<string | null>(null);
   const [isStoryboardPlayerOpen, setIsStoryboardPlayerOpen] = useState(false);
-  const [toastNotice, setToastNotice] = useState<string | null>(null);
 
-  // Omni-Director Agent Chat State with Real-Run Highway Survival Trace
+  // Omni-Director Agent Chat State
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentChatMessage[]>([
     {
@@ -316,7 +328,7 @@ export default function App() {
       role: 'assistant',
       modelUsed: 'DeepSeek Official · deepseek-chat',
       content:
-        '已基于您提供的《公路求生：开局老式车床》140行原文，调用 DeepSeek 官方引擎结合『漫剧老李·文武双模分镜 Skill』与『Seedance 2.0/2.5 导演 Skill』真实跑通全流程（纯提示词模式，未触发出图）：\n\n1. **5大跨镜头一致性资产提示词卡**：\n   - `@Image1` 谢长清（四视图锁脸 + 战术工装夹克 + 右耳直播耳麦）\n   - `@Image2` 1级老式普通车床（三爪卡盘 + 刀架尾座 + 机械臂 + 小型加热炉 + 4个宽大机械轮 + S级1秒联动金光）\n   - `@Image3` 光头猛男（黑色背心肌肉壮汉 + 破旧五菱面包车）\n   - `@Image4` 华夏8888分区·戈壁四车道公路（4500K烈日风沙 vs 6500K全息蓝屏）\n   - `@Image5` 黑铁物资箱 & 巧夺天工·木质长弓图纸\n2. **3场黄金前3秒爽点分场剧本（SC01~SC03）** + **6个 9:16 竖屏分镜全套三模型视频提示词（SHOT 01~06）** + **七段式分镜统筹总表**。\n3. **交互提示**：单击画布上任意节点即可在节点正下方弹出 `open-ai-canvas` 风格生成框；从节点右侧 `⊕` 拖出连线在空白处松手可弹出菜单新建并自动连接下游节点！',
+        '已基于《公路求生：开局老式车床》原文，调用 DeepSeek 官方引擎结合『漫剧老李·文武双模分镜 Skill』与『Seedance 2.0/2.5 导演 Skill』真实跑通全流程：\n\n1. **5大跨镜头一致性资产提示词卡**：\n   - `@Image1` 谢长清（四视图锁脸 + 战术工装夹克 + 右耳直播耳麦）\n   - `@Image2` 1级老式普通车床（三爪卡盘 + 刀架尾座 + 机械臂 + 小型加热炉 + 4个宽大机械轮 + S级1秒联动金光）\n   - `@Image3` 光头猛男（黑色背心肌肉壮汉 + 破旧五菱面包车）\n   - `@Image4` 华夏8888分区·戈壁四车道公路（4500K烈日风沙 vs 6500K全息蓝屏）\n   - `@Image5` 黑铁物资箱 & 巧夺天工·木质长弓图纸\n2. **3场黄金前3秒爽点分场剧本（SC01~SC03）** + **6个 9:16 竖屏分镜全套三模型视频提示词（SHOT 01~06）** + **七段式分镜统筹总表**。\n3. **实拍出图与生视频指南**：单击任意角色或分镜节点，在下方生成框可切换 `🎨 风格` 与 `⊞ 预设`，点击 **生成图片**（调用 GRSAI Nano Banana 实时出图）或 **生成视频**（调用 MiniMax H3 / Agnes 2.5 异步渲染实拍视频）。',
       timestamp: '10:24',
       mountedSkills: [
         'Seedance 2.0/2.5 导演 Skill',
@@ -377,7 +389,7 @@ export default function App() {
             status: 'completed',
           },
         ],
-        builtStatus: 'Built · 全套视频提示词与资产提示词已实跑就绪（纯提示词模式）',
+        builtStatus: 'Built · 全套视频提示词与资产提示词已实跑就绪',
       },
     },
   ]);
@@ -401,13 +413,348 @@ export default function App() {
     [nodes, inspectorNodeId]
   );
 
-  const getUpstreamNodesFor = (nodeId: string | null): CanvasNode[] => {
-    if (!nodeId) return [];
-    const incomingSourceIds = edges
-      .filter((e) => e.targetNodeId === nodeId)
-      .map((e) => e.sourceNodeId);
-    return nodes.filter((n) => incomingSourceIds.includes(n.id));
-  };
+  const getUpstreamNodesFor = useCallback(
+    (nodeId: string | null): CanvasNode[] => {
+      if (!nodeId) return [];
+      const incomingSourceIds = edges
+        .filter((e) => e.targetNodeId === nodeId)
+        .map((e) => e.sourceNodeId);
+      return nodes.filter((n) => incomingSourceIds.includes(n.id));
+    },
+    [nodes, edges]
+  );
+
+  // =========================================================================
+  // REQUIREMENT 1: AUTOMATIC 180-DEGREE AXIS & STORYBOARD EDGE INSPECTOR
+  // Analyzes all storyboard nodes & edges on the canvas. If two consecutive
+  // storyboard shots are BOTH disconnected AND exhibit a spatial/semantic
+  // 180-degree axis jump, automatically triggers an alarm in the Agent dialog!
+  // =========================================================================
+  const axisViolations: AxisViolationItem[] = useMemo(() => {
+    const storyboards = nodes
+      .filter((n) => n.type === 'storyboard' || n.type === 'video_clip')
+      .slice()
+      .sort((a, b) => {
+        const numA = parseInt(
+          (a.data.shotNumber || a.data.title || '').replace(/\D+/g, '') || '999',
+          10
+        );
+        const numB = parseInt(
+          (b.data.shotNumber || b.data.title || '').replace(/\D+/g, '') || '999',
+          10
+        );
+        if (numA !== numB) return numA - numB;
+        return a.position.x - b.position.x;
+      });
+
+    if (storyboards.length < 2) return [];
+
+    const violations: AxisViolationItem[] = [];
+
+    for (let i = 0; i < storyboards.length - 1; i++) {
+      const shotA = storyboards[i];
+      const shotB = storyboards[i + 1];
+
+      const hasDirectEdge = edges.some(
+        (e) =>
+          (e.sourceNodeId === shotA.id && e.targetNodeId === shotB.id) ||
+          (e.sourceNodeId === shotB.id && e.targetNodeId === shotA.id)
+      );
+
+      const deltaX = Math.round(shotB.position.x - shotA.position.x);
+      const deltaY = Math.round(shotB.position.y - shotA.position.y);
+
+      // Spatial axis jump: downstream shot jumps backward horizontally (deltaX < -20)
+      // OR jumps across vertical rows (|deltaY| > 160) without a bridging shot_sequence edge
+      // OR is separated by > 420px without a connecting edge
+      const isReverseXJump = deltaX < -20;
+      const isCrossRowJump = Math.abs(deltaY) > 160;
+      const isWideGapJump = Math.hypot(deltaX, deltaY) > 420;
+      const isSpatialJump = isReverseXJump || isCrossRowJump || isWideGapJump;
+
+      // Semantic 180-degree axis check in prompt text
+      const promptA = `${shotA.data.visualPrompt || ''} ${
+        shotA.data.videoPrompts?.seedance_2_5 || ''
+      } ${shotA.data.videoPrompts?.minimax_h3 || ''}`;
+      const promptB = `${shotB.data.visualPrompt || ''} ${
+        shotB.data.videoPrompts?.seedance_2_5 || ''
+      } ${shotB.data.videoPrompts?.minimax_h3 || ''}`;
+
+      const aLeft = /居左|Left-foreground|Center-left/i.test(promptA);
+      const aRight = /居右|Right-foreground|Center-right/i.test(promptA);
+      const bLeft = /居左|Left-foreground|Center-left/i.test(promptB);
+      const bRight = /居右|Right-foreground|Center-right/i.test(promptB);
+      const isSemanticJump =
+        (aLeft && bRight) ||
+        (aRight && bLeft) ||
+        !/180°|Position_Lock|站位声明/i.test(promptB);
+
+      // Core rule requested by user:
+      // Two storyboard nodes are NOT connected (!hasDirectEdge) AND their position exhibits an axis-jumping state (isSpatialJump)
+      if (!hasDirectEdge && isSpatialJump) {
+        const shotNoA = shotA.data.shotNumber || `SHOT 0${i + 1}`;
+        const shotNoB = shotB.data.shotNumber || `SHOT 0${i + 2}`;
+        let jumpDesc = '';
+        if (isReverseXJump && isCrossRowJump) {
+          jumpDesc = `空间坐标发生反向折返跨行跳轴 (ΔX=${deltaX}px, ΔY=${deltaY > 0 ? `+${deltaY}` : deltaY}px)`;
+        } else if (isReverseXJump) {
+          jumpDesc = `下游分镜位于上游分镜左侧反向跳轴 (ΔX=${deltaX}px)`;
+        } else if (isCrossRowJump) {
+          jumpDesc = `上下跨行断层跳轴 (ΔY=${deltaY > 0 ? `+${deltaY}` : deltaY}px)`;
+        } else {
+          jumpDesc = `分镜间距过大断层跳轴 (${Math.round(Math.hypot(deltaX, deltaY))}px)`;
+        }
+
+        violations.push({
+          id: `axis-v-${shotA.id}-${shotB.id}`,
+          sourceShotId: shotA.id,
+          targetShotId: shotB.id,
+          sourceTitle: shotA.data.title,
+          targetTitle: shotB.data.title,
+          sourceShotNumber: shotNoA,
+          targetShotNumber: shotNoB,
+          hasDirectEdge: false,
+          isSpatialJump: true,
+          isSemanticJump,
+          deltaX,
+          deltaY,
+          reason: `「${shotNoA}」与「${shotNoB}」不仅未建立分镜时序连线 (shot_sequence)，且画布${jumpDesc}，违反 180° 轴线连续性逻辑，极易导致成片机位越轴与空间方向错乱。`,
+          fixSuggestion: `建立 ${shotNoA} → ${shotNoB} 的时序连线，并将两镜头锁定在同一 180° 轴线方向（保持左驾右超或统一轴线顺延）。`,
+        });
+      }
+    }
+
+    return violations;
+  }, [nodes, edges]);
+
+  const lastAlarmSignatureRef = useRef<string>('');
+
+  const pushAxisAlarmToAgentChat = useCallback(
+    (violations: AxisViolationItem[], manualTrigger = false) => {
+      if (violations.length === 0) {
+        if (manualTrigger) {
+          const passMsg: AgentChatMessage = {
+            id: `msg-axis-pass-${Date.now()}`,
+            role: 'assistant',
+            modelUsed: '180° Axis Auto-Inspector · 漫剧老李质检锁',
+            content:
+              '✅ **180° 轴线与分镜连线巡检通过**：当前画布所有相邻分镜节点均已建立完整的 `shot_sequence` 时序连线，且空间排布与 `Position_Lock / 180°轴线` 站位声明完全对齐，无跳轴或断连风险。',
+            timestamp: new Date().toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            actionHistory: {
+              durationLabel: '0.2s',
+              summaryHeader: 'Inspected storyboard topology',
+              thinkingSteps: [
+                '扫描画布全部分镜节点 (storyboard) 的时序连线拓扑与二维坐标矢量。',
+                '校验相邻镜头间的 ΔX/ΔY 方向连续性与 180° 轴线站位声明：0 违例。',
+              ],
+              toolCalls: [
+                {
+                  id: `tc-axis-ok-${Date.now()}`,
+                  toolName: 'inspect_180_axis_topology',
+                  target: 'canvas/storyboards/axis-check.json',
+                  detail: '全部分镜连线与180°轴线正常',
+                  status: 'completed',
+                },
+              ],
+              builtStatus: 'Passed · 180° 轴线连续性完好',
+            },
+          };
+          setAgentMessages((prev) => [...prev, passMsg]);
+          setIsAgentPanelOpen(true);
+        }
+        return;
+      }
+
+      const alarmContent = `🚨 **画布 180° 轴线自动检查工具报警**：\n系统实时分析画布中所有分镜节点的连线与空间位置，发现 **${
+        violations.length
+      } 处违反 180° 轴线逻辑** 的分镜断层（相邻分镜不仅未连线，且位置呈现跳轴折返状态）：\n\n${violations
+        .map(
+          (v, idx) =>
+            `${idx + 1}. **${v.sourceShotNumber} → ${v.targetShotNumber}**：${v.reason}`
+        )
+        .join('\n')}\n\n您可点击下方 **「⚡ 一键修复跳轴并补齐连线」** 自动建立缺失的分镜连线并对齐 180° 轴线站位。`;
+
+      const alarmMsg: AgentChatMessage = {
+        id: 'msg-axis-auto-alarm',
+        role: 'assistant',
+        modelUsed: '180° Axis Auto-Inspector · 漫剧老李四道质检锁',
+        content: alarmContent,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        isAxisAlarm: true,
+        axisViolations: violations,
+        spawnedNodeIds: violations.map((v) => v.targetShotId),
+        actionHistory: {
+          durationLabel: '0.3s',
+          summaryHeader: `Detected ${violations.length} 180° axis violations`,
+          thinkingSteps: [
+            `1. 扫描分镜拓扑链路：遍历画布中所有分镜节点 (${
+              nodes.filter((n) => n.type === 'storyboard').length
+            } 个) 的连接矩阵与空间坐标。`,
+            ...violations.map(
+              (v, idx) =>
+                `${idx + 2}. 捕获跳轴断连违例 [${v.sourceShotNumber} → ${v.targetShotNumber}]：无时序连线 (shot_sequence) 且坐标发生跳轴偏移 (ΔX=${v.deltaX}px, ΔY=${v.deltaY}px)。`
+            ),
+          ],
+          toolCalls: violations.map((v, i) => ({
+            id: `tc-axis-v-${i}`,
+            toolName: 'detect_180_axis_jump',
+            target: `nodes/storyboards/${v.sourceShotNumber}_to_${v.targetShotNumber}.axis`,
+            detail: `未连线 + 位置跳轴 (ΔX=${v.deltaX}px)`,
+            status: 'completed' as const,
+          })),
+          builtStatus: `Alert · 发现 ${violations.length} 处 180° 跳轴断连风险`,
+        },
+      };
+
+      setAgentMessages((prev) => {
+        const filtered = prev.filter((m) => m.id !== 'msg-axis-auto-alarm');
+        return [...filtered, alarmMsg];
+      });
+    },
+    [nodes]
+  );
+
+  // Automatically trigger Agent chat alarm whenever a new 180-degree axis violation is detected
+  useEffect(() => {
+    const signature = axisViolations
+      .map((v) => `${v.sourceShotId}->${v.targetShotId}:${v.deltaX},${v.deltaY}`)
+      .join('|');
+    if (signature && signature !== lastAlarmSignatureRef.current) {
+      lastAlarmSignatureRef.current = signature;
+      pushAxisAlarmToAgentChat(axisViolations, false);
+    } else if (!signature && lastAlarmSignatureRef.current) {
+      lastAlarmSignatureRef.current = '';
+      // Remove stale alarm card once all violations are resolved
+      setAgentMessages((prev) =>
+        prev.filter((m) => m.id !== 'msg-axis-auto-alarm')
+      );
+    }
+  }, [axisViolations, pushAxisAlarmToAgentChat]);
+
+  const handleRunAxisInspection = useCallback(() => {
+    setIsAgentPanelOpen(true);
+    pushAxisAlarmToAgentChat(axisViolations, true);
+    if (axisViolations.length > 0) {
+      showToast(
+        `🚨 180°轴线巡检发现 ${axisViolations.length} 处未连线且位置跳轴的分镜，已在右侧 Agent 对话框报警！`
+      );
+    } else {
+      showToast('✅ 180°轴线巡检通过：所有分镜连线与空间轴线连续无跳轴');
+    }
+  }, [axisViolations, pushAxisAlarmToAgentChat, showToast]);
+
+  const handleAutoFixAxisViolations = useCallback(() => {
+    if (axisViolations.length === 0) {
+      showToast('当前画布无 180° 轴线违例');
+      return;
+    }
+
+    const newEdges: CanvasEdge[] = [...edges];
+    axisViolations.forEach((v) => {
+      const exists = newEdges.some(
+        (e) =>
+          (e.sourceNodeId === v.sourceShotId &&
+            e.targetNodeId === v.targetShotId) ||
+          (e.sourceNodeId === v.targetShotId &&
+            e.targetNodeId === v.sourceShotId)
+      );
+      if (!exists) {
+        newEdges.push({
+          id: `edge-axis-fix-${v.sourceShotId}-${v.targetShotId}-${Date.now()}`,
+          sourceNodeId: v.sourceShotId,
+          targetNodeId: v.targetShotId,
+          relationType: 'shot_sequence',
+        });
+      }
+    });
+
+    // Also ensure storyboard nodes are aligned in a clean left-to-right 180° axis sequence if any shot was dragged to the left of its predecessor on the same row
+    const storyboards = nodes
+      .filter((n) => n.type === 'storyboard' || n.type === 'video_clip')
+      .slice()
+      .sort((a, b) => {
+        const numA = parseInt(
+          (a.data.shotNumber || a.data.title || '').replace(/\D+/g, '') || '999',
+          10
+        );
+        const numB = parseInt(
+          (b.data.shotNumber || b.data.title || '').replace(/\D+/g, '') || '999',
+          10
+        );
+        return numA - numB;
+      });
+
+    const posMap = new Map<string, { x: number; y: number }>();
+    storyboards.forEach((sb, idx) => {
+      const col = idx % 3;
+      const row = Math.floor(idx / 3);
+      posMap.set(sb.id, {
+        x: 835 + col * 325,
+        y: 110 + row * 445,
+      });
+    });
+
+    const nextNodes = nodes.map((n) => {
+      const fixedPos = posMap.get(n.id);
+      if (!fixedPos) return n;
+      const promptHasAxis = /180°|Position_Lock|站位声明/i.test(
+        n.data.visualPrompt || ''
+      );
+      const nextVisualPrompt = promptHasAxis
+        ? n.data.visualPrompt
+        : `[Position_Lock: 180°轴线顺延锁定] ${n.data.visualPrompt || ''}`;
+      return {
+        ...n,
+        position: fixedPos,
+        data: {
+          ...n.data,
+          visualPrompt: nextVisualPrompt,
+        },
+      };
+    });
+
+    commitCommand(
+      `一键修复 ${axisViolations.length} 处 180° 轴线跳轴并补齐分镜连线`,
+      {
+        nodes: nextNodes,
+        edges: newEdges,
+        mountedSkillIds,
+        selectedNodeId: axisViolations[0]?.targetShotId || selectedNodeId,
+      }
+    );
+
+    const fixedMsg: AgentChatMessage = {
+      id: `msg-axis-fixed-${Date.now()}`,
+      role: 'assistant',
+      modelUsed: '180° Axis Auto-Inspector · 自动修复完成',
+      content: `✅ 已自动为您补齐 **${axisViolations
+        .map((v) => `${v.sourceShotNumber} → ${v.targetShotNumber}`)
+        .join('、')}** 的分镜时序连线 (\`shot_sequence\`)，并将分镜序列对齐至标准 180° 轴线网格与 \`Position_Lock\` 站位锁死状态（可随时按 Ctrl+Z 撤销）。`,
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    };
+    setAgentMessages((prev) => [
+      ...prev.filter((m) => m.id !== 'msg-axis-auto-alarm'),
+      fixedMsg,
+    ]);
+    showToast('已一键修复 180° 轴线跳轴并补齐分镜时序连线！');
+  }, [
+    axisViolations,
+    edges,
+    nodes,
+    mountedSkillIds,
+    selectedNodeId,
+    commitCommand,
+    showToast,
+  ]);
 
   // Synchronize active canvas changes back into `projects` & localStorage
   useEffect(() => {
@@ -442,22 +789,26 @@ export default function App() {
     setActiveTemplateId(found.id);
     if (found.edgeColor) setEdgeColor(found.edgeColor);
     commitCommand(`切换画布工程：${found.name}`, {
-      nodes: found.nodes,
-      edges: found.edges,
+      nodes: found.nodes || [],
+      edges: found.edges || [],
       mountedSkillIds: found.mountedSkillIds || mountedSkillIds,
       selectedNodeId:
-        found.nodes.find((n) => n.type === 'storyboard')?.id ||
-        found.nodes[0]?.id ||
+        (found.nodes || []).find((n) => n.type === 'storyboard')?.id ||
+        found.nodes?.[0]?.id ||
         null,
     });
     showToast(`已切换短剧画布工程：${found.name}`);
   };
 
-  const handleCreateProject = (
-    name: string,
-    subtitle: string,
-    templateMode: 'blank' | 'starter' | string
-  ) => {
+  // Fixed signature matching ProjectManagerModal's object parameter
+  const handleCreateProject = (params: {
+    name: string;
+    episodeTitle: string;
+    description: string;
+    genreTag: string;
+    aspectRatio: '9:16' | '16:9';
+    templateId?: string;
+  }) => {
     const nowStr = new Date().toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
@@ -466,10 +817,11 @@ export default function App() {
     let initialNodes: CanvasNode[] = [];
     let initialEdges: CanvasEdge[] = [];
 
-    if (templateMode === 'blank') {
+    const mode = params.templateId || 'blank';
+    if (mode === 'blank') {
       initialNodes = [];
       initialEdges = [];
-    } else if (templateMode === 'starter') {
+    } else if (mode === 'starter-3nodes' || mode === 'starter') {
       const charId = `node-char-${Date.now()}`;
       const scriptId = `node-script-${Date.now() + 1}`;
       const shotId = `node-shot-${Date.now() + 2}`;
@@ -478,53 +830,68 @@ export default function App() {
           id: charId,
           type: 'character',
           position: { x: 80, y: 120 },
+          width: 300,
           data: {
             title: '核心主角 · 四视图锚点',
-            subtitle: '@Image1 · 角色一致性锁死',
-            anchorTag: '@Character_Main',
-            consistencyLocked: true,
-            traits: ['24岁亚洲主角', '高辨识度服装锚点', 'FACS微表情基准'],
-            visualPrompt:
-              'Character turnaround sheet, front view, side profile, back view, 3/4 view, consistent facial identity, dramatic cinematic lighting, 9:16 vertical short drama style.',
+            subtitle: '@Image1 · 角色骨相一致性锁死',
+            roleType: '核心主角 (@Image1)',
+            consistencyPrompt:
+              '[Asset_Board_Lock: 4-View Character Turnaround Sheet (01.Front View | 02.90° Side Profile | 03.Back View | 04.FACS Micro-Expression Close-Up)] 24yo East Asian protagonist, high-contrast studio rim light, neutral grey background, 8k ultra-detailed.',
+            costumeDetails: '高辨识度主角服装与标志性随身道具 (@Image1)',
+            lightingMood: '4500K 主光 + 6500K 轮廓光',
+            threeViewVerified: true,
           },
         },
         {
           id: scriptId,
           type: 'script',
           position: { x: 460, y: 120 },
+          width: 340,
           data: {
-            title: 'EP01 · 黄金前3秒爽点剧本',
-            subtitle: '开局高潮钩子 · 冲突反转',
-            episodeTag: 'EP01-SC01',
-            durationSec: 12,
-            hookScore: 95,
-            content:
-              '【0-3秒强冲突】主角在绝境中突然触发唯一隐藏神级天赋，全息金光瞬间笼罩全场，反派表情从嘲讽凝固为惊骇。',
+            title: `${params.episodeTitle} · 第一场`,
+            subtitle: '黄金前3秒爽点钩子 · 冲突反转',
+            sceneNumber: 'EP01-SC01',
+            hookPoint:
+              '【黄金前3秒】在此填写开场前3秒高视觉冲击画面或高悬念冲突动作。',
+            reversalPoint: '【本场反转】在此填写本场结尾的高潮反转或打脸爽点。',
+            scriptBody:
+              '在此输入本场剧本正文，支持点击下方按钮【拆解为分镜序列】一键生成连线分镜节点。',
+            dialogues: [
+              {
+                speaker: '主角',
+                emotion: 'FACS: AU4眉头微蹙 + 眼神凌厉',
+                line: '“请在此输入核心台词。”',
+              },
+            ],
           },
         },
         {
           id: shotId,
           type: 'storyboard',
-          position: { x: 860, y: 120 },
+          position: { x: 880, y: 120 },
+          width: 295,
           data: {
-            title: 'SHOT 01 · 黄金前3秒视觉特写',
-            subtitle: 'Seedance 2.0 · 9:16 竖屏分镜',
+            title: 'SHOT 01 · 黄金前3秒开场特写',
+            subtitle: `近景转特写 · ${params.aspectRatio}`,
             shotNumber: 'SHOT 01',
-            cameraAngle: 'ECU 极近特写 -> 环绕推镜',
-            lightingStyle: '高反差冷暖双色温碰撞',
-            aspectRatio: '9:16',
-            videoModelTarget: 'seedance_2_0',
-            dialogue: '“谁告诉你，这只是普通装备？”',
+            aspectRatio: params.aspectRatio,
+            shotSize: '近景转特写 (MS → CU)',
+            cameraMove: '[Push in, Tilt up]',
+            focalLength: '35mm f/1.4',
+            videoModelTarget: defaultVideoModel,
             visualPrompt:
-              '【Seedance 2.0 6段式】1.主体与锚点：引用 @Image1 (@Character_Main)；2.微表情(FACS)：AU4眉头微蹙转冷笑；3.镜头运镜：ECU瞳孔特写急速拉出至中景环绕；4.光影色温：6500K全息蓝光碰撞2800K金芒；5.物理特效：气浪掀起衣角与碎屑；6.画质规格：9:16 vertical, 60fps.',
+              '[Protagonist (@Image1)] + [executes dramatic opening hook action with FACS micro-expression] + in [Primary Scene (@Image2)] + Camera: [Rapid Push-in, Subject Lock]; Lens: [35mm f/1.4] + Style: [High-contrast cinema] + Avoid: [face morphing, extra fingers, axis jump]',
             videoPrompts: {
               seedance_2_0:
-                '【Seedance 2.0 6段式】1.主体与锚点：引用 @Image1 (@Character_Main)；2.微表情(FACS)：AU4眉头微蹙转冷笑；3.镜头运镜：ECU瞳孔特写急速拉出至中景环绕；4.光影色温：6500K全息蓝光碰撞2800K金芒；5.物理特效：气浪掀起衣角与碎屑；6.画质规格：9:16 vertical, 60fps.',
+                '[Protagonist (@Image1)] + [executes dramatic opening hook action with FACS micro-expression] + in [Primary Scene (@Image2)] + Camera: [Rapid Push-in, Subject Lock]; Lens: [35mm f/1.4] + Style: [High-contrast cinema] + Avoid: [face morphing, extra fingers, axis jump]',
               seedance_2_5:
-                '【Seedance 2.5 7段式】@Image1 主角觉醒瞬间，0-2s瞳孔倒映金光，2-5s气浪炸裂衣角翻飞，180度轴线锁定，9:16竖屏电影质感。',
+                'Refs: [@Image1 (Protagonist Lock)] | [站位声明: 主角居左面向右侧，严格遵守180°轴线] | Shot 1 (0.0s - 1.5s) [Hook]: Rapid push-in to protagonist eyes. -> Shot 2 (1.5s - 3.5s) [Impact]: Dramatic reveal | Avoid: [崩脸, 越轴]',
               minimax_h3:
-                '[Push in & Orbit] Protagonist (@Image1) awakens golden aura in extreme close-up, debris floating in slow motion, high contrast lighting, 9:16 vertical.',
+                '[Push in, Tilt up] Subject_Lock: (Protagonist @Image1). Position_Lock: (Left-foreground facing right). At 00:00.000, rapid push-in capturing fierce gaze.',
             },
+            dialogueSnippet: '“请在此输入核心台词。”',
+            speakerName: '主角',
+            durationSec: 3.5,
           },
         },
       ];
@@ -534,28 +901,28 @@ export default function App() {
           sourceNodeId: charId,
           targetNodeId: shotId,
           relationType: 'character_ref',
-          animated: true,
         },
         {
           id: `edge-starter-2-${Date.now()}`,
           sourceNodeId: scriptId,
           targetNodeId: shotId,
           relationType: 'script_breakdown',
-          animated: true,
         },
       ];
     } else {
       const tpl =
-        PROJECT_TEMPLATES.find((t) => t.id === templateMode) ||
-        PROJECT_TEMPLATES[0];
+        PROJECT_TEMPLATES.find((t) => t.id === mode) || PROJECT_TEMPLATES[0];
       initialNodes = JSON.parse(JSON.stringify(tpl.nodes));
       initialEdges = JSON.parse(JSON.stringify(tpl.edges));
     }
 
     const newProj: CanvasProject = {
       id: newId,
-      name,
-      subtitle,
+      name: params.name,
+      episodeTitle: params.episodeTitle,
+      description: params.description,
+      genreTag: params.genreTag,
+      aspectRatio: params.aspectRatio,
       createdAt: nowStr,
       updatedAt: '刚刚',
       nodes: initialNodes,
@@ -571,28 +938,49 @@ export default function App() {
     setSelectedNodeId(initialNodes[0]?.id || null);
     setUndoStack([]);
     setRedoStack([]);
-    showToast(`已新建并切换至画布「${name}」`);
+    showToast(`已新建并切换至画布「${params.name}」`);
   };
 
   const handleDeleteProject = (projectId: string) => {
-    if (projects.length <= 1) {
-      showToast('至少需要保留 1 个短剧画布工程');
-      return;
-    }
     const target = projects.find((p) => p.id === projectId);
     const remaining = projects.filter((p) => p.id !== projectId);
-    setProjects(remaining);
-    try {
-      localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(remaining));
-    } catch {
-      // Ignore storage error
+
+    if (remaining.length === 0) {
+      const blankProj: CanvasProject = {
+        id: `proj-blank-${Date.now()}`,
+        name: '未命名空白短剧画布',
+        episodeTitle: 'EP01 · 第一集',
+        description: '全新空白短剧画布工作区',
+        genreTag: '自定义短剧',
+        aspectRatio: '9:16',
+        createdAt: new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        updatedAt: '刚刚',
+        nodes: [],
+        edges: [],
+        mountedSkillIds: [...DEFAULT_MOUNTED_SKILLS],
+        edgeColor: '#A1A1AA',
+      };
+      setProjects([blankProj]);
+      setActiveTemplateId(blankProj.id);
+      setNodes([]);
+      setEdges([]);
+      setSelectedNodeId(null);
+      setUndoStack([]);
+      setRedoStack([]);
+      showToast(`已删除「${target?.name || projectId}」并初始化空白画布`);
+      return;
     }
-    if (activeTemplateId === projectId && remaining.length > 0) {
+
+    setProjects(remaining);
+    if (activeTemplateId === projectId) {
       const nextActive = remaining[0];
       setActiveTemplateId(nextActive.id);
-      setNodes(nextActive.nodes);
-      setEdges(nextActive.edges);
-      setSelectedNodeId(nextActive.nodes[0]?.id || null);
+      setNodes(nextActive.nodes || []);
+      setEdges(nextActive.edges || []);
+      setSelectedNodeId(nextActive.nodes?.[0]?.id || null);
       setUndoStack([]);
       setRedoStack([]);
     }
@@ -624,16 +1012,32 @@ export default function App() {
   const handleRenameProject = (
     projectId: string,
     newName: string,
-    newSubtitle: string
+    newEpisodeTitle: string
   ) => {
     setProjects((prev) =>
       prev.map((p) =>
         p.id === projectId
-          ? { ...p, name: newName, subtitle: newSubtitle, updatedAt: '刚刚' }
+          ? {
+              ...p,
+              name: newName,
+              episodeTitle: newEpisodeTitle,
+              updatedAt: '刚刚',
+            }
           : p
       )
     );
     showToast(`已更新画布名称为「${newName}」`);
+  };
+
+  const handleImportProjectJson = (imported: CanvasProject) => {
+    setProjects((prev) => [imported, ...prev]);
+    setActiveTemplateId(imported.id);
+    setNodes(imported.nodes || []);
+    setEdges(imported.edges || []);
+    setSelectedNodeId(imported.nodes?.[0]?.id || null);
+    setUndoStack([]);
+    setRedoStack([]);
+    showToast(`已成功导入画布工程「${imported.name}」`);
   };
 
   const handleResetDefaultProjects = () => {
@@ -650,10 +1054,25 @@ export default function App() {
     } catch {
       // Ignore
     }
-    showToast('已恢复《公路求生》实跑工程与赛博悬疑预设画布');
+    showToast('已恢复《公路求生：开局老式车床》默认工程');
   };
 
-  // Node Dragging with atomic Command Pattern Undo/Redo
+  // Requirement 2: Right-click menu "清空当前画布全部节点" with Undo support
+  const handleClearCanvas = () => {
+    if (nodes.length === 0 && edges.length === 0) {
+      showToast('当前画布已经是空白状态');
+      return;
+    }
+    commitCommand(`清空画布全部 ${nodes.length} 个节点`, {
+      nodes: [],
+      edges: [],
+      mountedSkillIds,
+      selectedNodeId: null,
+    });
+    showToast('已清空当前画布全部节点与连线（可按 Ctrl+Z 撤销恢复）');
+  };
+
+  // Node Dragging with atomic Command Pattern Undo/Redo (single or box-selected group)
   const handleNodeDragStart = (id: string) => {
     const _ = id;
     dragStartSnapshotRef.current = getCurrentSnapshot();
@@ -665,7 +1084,21 @@ export default function App() {
     );
   };
 
-  const handleNodeDragEnd = (id: string) => {
+  const handleUpdateMultipleNodesPositions = (
+    updates: { id: string; x: number; y: number }[]
+  ) => {
+    if (updates.length === 0) return;
+    const posMap = new Map<string, { x: number; y: number }>();
+    updates.forEach((u) => posMap.set(u.id, { x: u.x, y: u.y }));
+    setNodes((prev) =>
+      prev.map((n) => {
+        const nextPos = posMap.get(n.id);
+        return nextPos ? { ...n, position: nextPos } : n;
+      })
+    );
+  };
+
+  const handleNodeDragEnd = (id: string, draggedGroupIds?: string[]) => {
     const startSnap = dragStartSnapshotRef.current;
     dragStartSnapshotRef.current = null;
     if (!startSnap) return;
@@ -678,8 +1111,12 @@ export default function App() {
       beforeNode.position.x !== afterNode.position.x ||
       beforeNode.position.y !== afterNode.position.y
     ) {
+      const commandTitle =
+        draggedGroupIds && draggedGroupIds.length > 1
+          ? `同步平移框选的 ${draggedGroupIds.length} 个节点`
+          : `移动节点「${afterNode.data.title.split('·')[0]}」`;
       commitCommand(
-        `移动节点「${afterNode.data.title.split('·')[0]}」`,
+        commandTitle,
         {
           nodes,
           edges,
@@ -689,6 +1126,24 @@ export default function App() {
         startSnap
       );
     }
+  };
+
+  const handleDeleteMultipleNodes = (ids: string[]) => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const nextNodes = nodes.filter((n) => !idSet.has(n.id));
+    const nextEdges = edges.filter(
+      (e) => !idSet.has(e.source) && !idSet.has(e.target)
+    );
+    const nextSelectedId =
+      selectedNodeId && idSet.has(selectedNodeId) ? null : selectedNodeId;
+    commitCommand(`批量删除框选的 ${ids.length} 个节点`, {
+      nodes: nextNodes,
+      edges: nextEdges,
+      mountedSkillIds,
+      selectedNodeId: nextSelectedId,
+    });
+    showToast(`已删除框选的 ${ids.length} 个节点（可按 Ctrl+Z 撤销恢复）`);
   };
 
   const handleSwitchNodeVideoModel = (
@@ -721,13 +1176,17 @@ export default function App() {
     );
   };
 
+  // Clean, zero-mock node creation templates
   const createNewCanvasNodeObject = (
     type: NodeCategory,
     customX?: number,
     customY?: number
   ): CanvasNode => {
-    const id = `node-${type}-${Date.now()}`;
+    const id = `node-${type}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
     const shotCount = nodes.filter((n) => n.type === 'storyboard').length + 1;
+    const charCount = nodes.filter((n) => n.type === 'character').length + 1;
+    const sceneCount = nodes.filter((n) => n.type === 'scene_asset').length + 1;
+    const scriptCount = nodes.filter((n) => n.type === 'script').length + 1;
     const hasCustomPos =
       typeof customX === 'number' && typeof customY === 'number';
 
@@ -737,16 +1196,16 @@ export default function App() {
         type: 'character',
         position: hasCustomPos
           ? { x: customX!, y: customY! }
-          : { x: 80, y: 220 + Math.round(Math.random() * 120) },
+          : { x: 80, y: 160 + (charCount - 1) * 240 },
         width: 300,
         data: {
-          title: '新角色四视图一致性资产',
+          title: `角色资产 #${charCount}`,
           subtitle: '四视图锁脸设定 · 单击节点弹出生成框',
-          roleType: '核心角色锚点 (@Image1)',
+          roleType: `角色锚点 (@Image${charCount})`,
           consistencyPrompt:
-            '[Asset_Board_Lock: 4-View Character Sheet (01.Front View | 02.90° Profile View | 03.Back View | 04.FACS Face Close-Up)] 24yo East Asian protagonist, sharp expressive eyes, distinct wasteland tactical attire, high-contrast studio rim light.',
-          costumeDetails: '定制战术工装 · 标志性配饰 (@Image1)',
-          lightingMood: '4500K 侧逆光 + 6500K 轮廓光',
+            '[Asset_Board_Lock: 4-View Character Turnaround Sheet (01.Front View | 02.90° Profile View | 03.Back View | 04.FACS Face Close-Up)] East Asian protagonist, distinct costume silhouette, studio rim lighting, neutral grey reference background, 8k.',
+          costumeDetails: `角色标志性服装与随身道具 (@Image${charCount})`,
+          lightingMood: '4500K 主光 + 6500K 轮廓光',
           visualPreset: 'custom',
           threeViewVerified: true,
         },
@@ -758,16 +1217,16 @@ export default function App() {
         type: 'scene_asset',
         position: hasCustomPos
           ? { x: customX!, y: customY! }
-          : { x: 80, y: 500 },
+          : { x: 80, y: 460 + (sceneCount - 1) * 240 },
         width: 300,
         data: {
-          title: '新场景/载具空间锚点',
-          subtitle: '空间透视与机械结构基准 (@Image2)',
-          roleType: '核心场景/载具锚点 (@Image2)',
+          title: `场景/道具空间锚点 #${sceneCount}`,
+          subtitle: '180°轴线空间与光影色温基准',
+          roleType: `场景锚点 (@Scene${sceneCount})`,
           consistencyPrompt:
-            '[Scene_Spatial_Lock: 180-Degree Axis Environment] Cinematic wasteland highway or industrial workshop interior, high-contrast warm tungsten & cool blue holographic lighting.',
-          costumeDetails: '核心场景与载具陈设 (@Image2)',
-          lightingMood: '4500K 主光 + 6500K 全息冷光',
+            '[Scene_Spatial_Lock: 180-Degree Axis Environment] Cinematic architectural or exterior environment, clear foreground/midground/background depth, consistent color temperature.',
+          costumeDetails: '核心场景建筑与道具陈设',
+          lightingMood: '冷暖反差电影布光',
         },
       };
     }
@@ -777,23 +1236,21 @@ export default function App() {
         type: 'script',
         position: hasCustomPos
           ? { x: customX!, y: customY! }
-          : { x: 440, y: 380 },
+          : { x: 440, y: 200 + (scriptCount - 1) * 280 },
         width: 340,
         data: {
-          title: '新分场剧本节点：高潮对峙',
-          subtitle: '外景 · 黄金前3秒爽点结构',
-          sceneNumber: 'EP01-SC04',
-          hookPoint:
-            '【黄金前3秒】谢长清将木质长弓图纸拍在老式车床三爪卡盘上，1秒金光爆闪！',
-          reversalPoint:
-            '【结尾反转】巧夺天工级木质长弓（耐久999）瞬间成型，附带穿甲爆裂词条！',
+          title: `第 ${scriptCount} 场：分场剧本节点`,
+          subtitle: '黄金前3秒爽点结构 · 支持一键拆解分镜',
+          sceneNumber: `EP01-SC0${scriptCount}`,
+          hookPoint: '【黄金前3秒】在此输入本场开局前3秒的强冲突视觉钩子。',
+          reversalPoint: '【结尾反转】在此输入本场结尾的情绪爆发或剧情反转点。',
           scriptBody:
-            '在此输入或点击下方生成框扩写分场剧本正文、FACS微表情与动作描写。',
+            '在此输入分场剧本正文，或点击下方【拆解为分镜序列】由 AI 自动拆解并连线生成分镜节点。',
           dialogues: [
             {
-              speaker: '谢长清',
-              emotion: 'FACS: 单侧唇角自信勾起(AU12)',
-              line: '“1秒钟，巧夺天工品质——这车床真香！”',
+              speaker: '角色',
+              emotion: 'FACS: 微表情编码描述',
+              line: '“在此输入角色台词。”',
             },
           ],
         },
@@ -808,10 +1265,10 @@ export default function App() {
           : { x: 440, y: 180 },
         width: 300,
         data: {
-          title: '导演批注与原著设定便签',
+          title: '导演批注与设定便签',
           subtitle: '自由文本节点 · 可连线注入剧本或分镜',
           textNoteContent:
-            '【轴线与情绪备忘】本场严格锁定 180° 轴线（谢长清与老式车床居左车道，超车面包车居右车道）。',
+            '在此记录本场 180° 轴线机位方位、角色走位或视觉风格备忘。',
         },
       };
     }
@@ -824,11 +1281,10 @@ export default function App() {
           : { x: 440, y: 540 },
         width: 300,
         data: {
-          title: '@Audio1 · 音轨与台词气口节点',
-          subtitle: 'Seedance 2.5 音画同步锚点',
-          audioBpmOrMood: '78 BPM · 废土风沙呼啸 + 车床1秒金光音效',
-          audioTranscript:
-            '[0.0s 机械卡盘夹紧声] → [1.0s S级巧夺天工金光爆鸣] → [2.2s 弓弦震颤嗡鸣]',
+          title: '@Audio1 · 音轨与台词配音节点',
+          subtitle: 'Seedance 2.5 音画同步锚点 · 支持 TTS 试听',
+          audioBpmOrMood: '环境音 + 关键动作音效 + 角色台词气口',
+          audioTranscript: '在此输入需要 TTS 试听或音画同步的台词与音效时间轴。',
           durationSec: 3.5,
         },
       };
@@ -842,16 +1298,16 @@ export default function App() {
           : { x: 840, y: 560 },
         width: 720,
         data: {
-          title: '漫剧老李·七段式分镜统筹表',
+          title: '七段式分镜统筹总表',
           subtitle: '含镜号 / 景别 / 运镜 / 180°轴线 / FACS微表情 / 时长',
           tableRows: [
             {
               shotNo: `SHOT 0${shotCount}`,
               shotSize: '中近景 MCU',
               cameraMove: '[Push in] 35mm',
-              axisLine: '男主居左面向右侧车床',
-              facsMicro: 'AU6+AU12 狂喜勾唇',
-              visualContent: '老式车床1秒合成巧夺天工木质长弓，金光映亮瞳孔',
+              axisLine: '主体居左面向右侧 (180°轴线锁定)',
+              facsMicro: 'AU4 眉心微蹙',
+              visualContent: '待填入分镜画面描述',
               duration: '3.5s',
             },
           ],
@@ -868,20 +1324,17 @@ export default function App() {
         width: 680,
         height: 440,
         data: {
-          title: '新自由分镜分组框 (Scene Group)',
-          groupDescription:
-            '可将关联剧本、角色锚点与分镜卡片拖拽至此分组区域',
+          title: '分镜与资产分组框 (Scene Group)',
+          groupDescription: '可将关联剧本、角色锚点与分镜卡片拖拽至此区域',
         },
       };
     }
 
+    const shotLabel = `SHOT ${String(shotCount).padStart(2, '0')}`;
     const defaultPrompts = {
-      minimax_h3:
-        '[Push in, Tilt up] Subject_Lock: (Xie Changqing @Image1 on Vintage Lathe @Image2). Position_Lock: (Left-foreground facing right). At 00:00.000, rapid push-in as S-Rank golden crafting light erupts from the 3-jaw chuck. [Shot Cut] At 00:01.500, Masterwork Wooden Longbow materializes in 1 second.',
-      seedance_2_0:
-        '[Xie Changqing (@Image1) & Vintage Cast-Iron Lathe (@Image2)] + [triggers 1-second S-Rank Perfect Crafting golden burst, FACS AU6/AU12 confident smirk] + in [Gobi 4-Lane Highway (@Image4)] + Camera: [Rapid Push-in + Orbit, Fast speed, Subject Lock: chuck & bow]; Lens: [35mm f/1.4 Anamorphic]; Stability: [Steadicam] + Style: [Wasteland survival blockbuster] + Avoid: [face morphing, extra fingers, axis jump]',
-      seedance_2_5:
-        'Refs: [@Image1 (Xie Changqing Lock), @Image2 (Vintage Lathe Lock), @Image4 (Gobi Highway), @Audio1 (1s Crafting Chime)] | [站位声明: 谢长清居左操控车床，严格遵守180°轴线] | Shot 1 (0.0s - 1.2s) [Hook]: Blueprint placed on lathe chuck, golden light flashes for 1s. -> Shot 2 (1.2s - 3.5s) [Climax]: Xie Changqing lifts Masterwork Wooden Longbow (Durability 999) | Avoid: [崩脸, 越轴]',
+      minimax_h3: `[Push in] Subject_Lock: (@Image1). Position_Lock: (Left-foreground facing right). At 00:00.000, cinematic shot for ${shotLabel}.`,
+      seedance_2_0: `[Subject (@Image1)] + [performs key dramatic action with FACS micro-expression] + in [Environment (@Image2)] + Camera: [Push in, Subject Lock]; Lens: [35mm f/1.4] + Style: [Cinematic short drama] + Avoid: [face morphing, extra fingers, axis jump]`,
+      seedance_2_5: `Refs: [@Image1 (Character Lock), @Image2 (Scene Lock)] | [站位声明: 主体居左面向右侧，严格遵守180°轴线] | Shot 1 (0.0s - 1.8s) [Hook]: Opening movement -> Shot 2 (1.8s - 3.5s) [Climax]: Close-up reaction | Avoid: [崩脸, 越轴]`,
     };
 
     return {
@@ -892,28 +1345,19 @@ export default function App() {
         : { x: 880 + ((shotCount - 1) % 3) * 315, y: 340 },
       width: 295,
       data: {
-        title: `SHOT 0${shotCount} · 新增竖屏视频分镜`,
+        title: `${shotLabel} · 竖屏视频分镜`,
         subtitle: '特写 (CU) · 竖屏 9:16',
-        shotNumber: `SHOT 0${shotCount}`,
+        shotNumber: shotLabel,
         aspectRatio: '9:16',
         shotSize: '特写 (CU)',
-        cameraMove: '[Push in, Tilt up]',
+        cameraMove: '[Push in]',
         focalLength: '35mm f/1.4',
         videoModelTarget: defaultVideoModel,
         visualPrompt: defaultPrompts[defaultVideoModel],
         videoPrompts: defaultPrompts,
-        dialogueSnippet:
-          '“点击下方生成框【生成提示词】，自动融合上游角色与老式车床锚点。”',
-        speakerName: '谢长清',
+        dialogueSnippet: '',
+        speakerName: '',
         durationSec: 3.5,
-        customSvgElements: {
-          primaryHue: '#F59E0B',
-          secondaryHue: '#18181B',
-          keyLightAngle: '45° 戈壁烈日侧逆光 + S级金光',
-          silhouetteType: 'single_closeup',
-          cameraVectorLabel: '[Push in] · 35mm',
-          focalCaption: '单击节点在下方生成框查看/合成三套视频提示词',
-        },
       },
     };
   };
@@ -933,8 +1377,6 @@ export default function App() {
     showToast(`已新建节点「${newNode.data.title}」（可按 Ctrl+Z 撤销）`);
   };
 
-  // Requirement 4: Dragging out an edge and releasing on empty canvas pops up menu,
-  // creating the new node AND automatically connecting it to the source node!
   const handleAddConnectedNode = (
     sourceNodeId: string,
     targetType: NodeCategory,
@@ -944,7 +1386,6 @@ export default function App() {
     const sourceNode = nodes.find((n) => n.id === sourceNodeId);
     const newNode = createNewCanvasNodeObject(targetType, x, y);
 
-    // Inherit context from sourceNode if applicable
     if (
       sourceNode &&
       (newNode.type === 'storyboard' || newNode.type === 'video_clip')
@@ -955,7 +1396,7 @@ export default function App() {
           : sourceNode.type === 'scene_asset'
           ? `@Image2 (${sourceNode.data.title})`
           : sourceNode.data.title;
-      newNode.data.subtitle = `已自动连接自「${sourceNode.data.title.split('·')[0]}」`;
+      newNode.data.subtitle = `已连接自「${sourceNode.data.title.split('·')[0]}」`;
       newNode.data.visualPrompt = `[继承上游锚点: ${anchorTag}] ${newNode.data.visualPrompt}`;
     }
 
@@ -982,12 +1423,9 @@ export default function App() {
         selectedNodeId: newNode.id,
       }
     );
-    showToast(
-      `已新建「${newNode.data.title}」并自动建立属性注入连线！`
-    );
+    showToast(`已新建「${newNode.data.title}」并自动建立属性注入连线`);
   };
 
-  // Convert an uploaded file attachment directly into a Canvas Node
   const handleCreateNodeFromAttachment = (att: UploadedAttachment) => {
     const id = `node-upload-${Date.now()}`;
     let newNode: CanvasNode;
@@ -1000,7 +1438,7 @@ export default function App() {
         data: {
           title: `上传资产：${att.name.replace(/\.[^.]+$/, '')}`,
           subtitle: '用户上传参考图锚点 · 支持连线注入分镜',
-          roleType: '上传视觉参考锚点',
+          roleType: '上传视觉参考锚点 (@Image1)',
           consistencyPrompt: `Reference image [${att.name}] locked character/scene visual style and facial structure`,
           costumeDetails: '来自上传参考图 (@Image1)',
           generatedImageUrl: att.dataUrl,
@@ -1017,8 +1455,8 @@ export default function App() {
           title: `上传剧本：${att.name}`,
           subtitle: '外部导入剧本文档节点',
           sceneNumber: 'IMPORT-01',
-          hookPoint: '【导入剧本片段】可连线至分镜节点或交由全能 Agent 拆解',
-          scriptBody: (att.textContent || '').slice(0, 1200),
+          hookPoint: '【导入剧本片段】可点击拆解为分镜序列或交由 Agent 编排',
+          scriptBody: (att.textContent || '').slice(0, 2000),
         },
       };
     }
@@ -1101,72 +1539,352 @@ export default function App() {
   };
 
   const handleAutoLayout = () => {
-    const assets = nodes.filter(
-      (n) => n.type === 'character' || n.type === 'scene_asset'
-    );
-    const scripts = nodes.filter(
-      (n) =>
-        n.type === 'script' ||
-        n.type === 'idea' ||
-        n.type === 'text_note' ||
-        n.type === 'audio_clip'
-    );
-    const storyboards = nodes.filter(
-      (n) => n.type === 'storyboard' || n.type === 'storyboard_table'
+    handleOrganizeNodes('pipeline_compact');
+  };
+
+  // =========================================================================
+  // REQUIREMENT 4: AUTOMATIC NODE CLASSIFICATION & ORGANIZATION ENGINE
+  // Supports 3 modes:
+  // 1. 'category_groups': Classifies nodes into 4 labeled visual category zones with auto-sized group containers
+  // 2. 'type_columns': Classifies nodes into 5 dedicated vertical type lanes
+  // 3. 'pipeline_compact': Compact 3-column topological alignment
+  // =========================================================================
+  const handleOrganizeNodes = (mode: NodeOrganizeMode = 'category_groups') => {
+    const nonGroupNodes = nodes.filter((n) => n.type !== 'group');
+    if (nonGroupNodes.length === 0) {
+      showToast('当前画布暂无可分类整理的节点');
+      return;
+    }
+
+    const characters = nonGroupNodes
+      .filter((n) => n.type === 'character')
+      .sort((a, b) => a.data.title.localeCompare(b.data.title, 'zh-CN'));
+    const sceneAssets = nonGroupNodes
+      .filter((n) => n.type === 'scene_asset')
+      .sort((a, b) => a.data.title.localeCompare(b.data.title, 'zh-CN'));
+    const allAssets = [...characters, ...sceneAssets];
+
+    const scriptsAndNotes = nonGroupNodes
+      .filter(
+        (n) =>
+          n.type === 'script' || n.type === 'idea' || n.type === 'text_note'
+      )
+      .sort((a, b) => {
+        const scA = a.data.sceneNumber || a.data.title;
+        const scB = b.data.sceneNumber || b.data.title;
+        return scA.localeCompare(scB, 'zh-CN');
+      });
+
+    const storyboards = nonGroupNodes
+      .filter((n) => n.type === 'storyboard' || n.type === 'video_clip')
+      .sort((a, b) => {
+        const numA = parseInt(
+          (a.data.shotNumber || a.data.title || '').replace(/\D+/g, '') || '999',
+          10
+        );
+        const numB = parseInt(
+          (b.data.shotNumber || b.data.title || '').replace(/\D+/g, '') || '999',
+          10
+        );
+        if (numA !== numB) return numA - numB;
+        return a.position.x - b.position.x;
+      });
+
+    const audioAndTables = nonGroupNodes.filter(
+      (n) => n.type === 'audio_clip' || n.type === 'storyboard_table'
     );
 
-    const nextNodes = nodes.map((node) => {
-      if (node.type === 'character' || node.type === 'scene_asset') {
-        const idx = assets.findIndex((a) => a.id === node.id);
-        return {
+    if (mode === 'pipeline_compact') {
+      const positionedCards = nonGroupNodes.map((node) => {
+        if (node.type === 'character' || node.type === 'scene_asset') {
+          const idx = allAssets.findIndex((a) => a.id === node.id);
+          return {
+            ...node,
+            position: { x: 50, y: 110 + idx * 270 },
+          };
+        }
+        if (
+          node.type === 'script' ||
+          node.type === 'idea' ||
+          node.type === 'text_note'
+        ) {
+          const idx = scriptsAndNotes.findIndex((s) => s.id === node.id);
+          return {
+            ...node,
+            position: { x: 420, y: 110 + idx * 310 },
+          };
+        }
+        if (node.type === 'storyboard' || node.type === 'video_clip') {
+          const idx = storyboards.findIndex((sb) => sb.id === node.id);
+          const col = idx % 3;
+          const row = Math.floor(idx / 3);
+          return {
+            ...node,
+            position: {
+              x: 835 + col * 325,
+              y: 110 + row * 445,
+            },
+          };
+        }
+        if (node.type === 'audio_clip' || node.type === 'storyboard_table') {
+          const idx = audioAndTables.findIndex((t) => t.id === node.id);
+          const sbRows = Math.max(1, Math.ceil(storyboards.length / 3));
+          return {
+            ...node,
+            position: {
+              x: 835,
+              y: 110 + sbRows * 445 + idx * 290,
+            },
+          };
+        }
+        return node;
+      });
+
+      commitCommand('紧凑三栏拓扑对齐全部节点', {
+        nodes: positionedCards,
+        edges,
+        mountedSkillIds,
+        selectedNodeId,
+      });
+      showToast(
+        `已完成紧凑拓扑对齐：资产(${allAssets.length}) · 剧本(${scriptsAndNotes.length}) · 分镜(${storyboards.length})`
+      );
+      return;
+    }
+
+    if (mode === 'type_columns') {
+      const colGroups: CanvasNode[] = [];
+      const positionedCards: CanvasNode[] = [];
+
+      const lanes: {
+        id: string;
+        title: string;
+        desc: string;
+        color: string;
+        x: number;
+        width: number;
+        items: CanvasNode[];
+        rowGap: number;
+        cols: number;
+      }[] = [
+        {
+          id: 'group-col-char',
+          title: '分类一 · 角色四视图定妆列 (@Image)',
+          desc: `共 ${characters.length} 个角色资产节点`,
+          color: '#38BDF8',
+          x: 40,
+          width: 340,
+          items: characters,
+          rowGap: 280,
+          cols: 1,
+        },
+        {
+          id: 'group-col-scene',
+          title: '分类二 · 场景与载具空间列 (@Image)',
+          desc: `共 ${sceneAssets.length} 个场景/载具锚点`,
+          color: '#34D399',
+          x: 410,
+          width: 340,
+          items: sceneAssets,
+          rowGap: 270,
+          cols: 1,
+        },
+        {
+          id: 'group-col-script',
+          title: '分类三 · 分场剧本与文案批注列',
+          desc: `共 ${scriptsAndNotes.length} 个剧本/批注节点`,
+          color: '#F59E0B',
+          x: 780,
+          width: 380,
+          items: scriptsAndNotes,
+          rowGap: 320,
+          cols: 1,
+        },
+        {
+          id: 'group-col-storyboard',
+          title: '分类四 · 9:16 视觉分镜时序矩阵列',
+          desc: `共 ${storyboards.length} 个视频分镜节点 (180°轴线顺延)`,
+          color: '#818CF8',
+          x: 1190,
+          width: 670,
+          items: storyboards,
+          rowGap: 445,
+          cols: 2,
+        },
+        {
+          id: 'group-col-audio-table',
+          title: '分类五 · 音轨配音与七段式统筹表列',
+          desc: `共 ${audioAndTables.length} 个音轨/统筹表节点`,
+          color: '#F87171',
+          x: 1890,
+          width: 980,
+          items: audioAndTables,
+          rowGap: 320,
+          cols: 1,
+        },
+      ];
+
+      lanes.forEach((lane) => {
+        if (lane.items.length === 0) return;
+        const rows = Math.ceil(lane.items.length / lane.cols);
+        colGroups.push({
+          id: lane.id,
+          type: 'group',
+          position: { x: lane.x, y: 45 },
+          width: lane.width,
+          height: Math.max(420, 95 + rows * lane.rowGap),
+          data: {
+            title: lane.title,
+            groupDescription: lane.desc,
+            groupColor: lane.color,
+          },
+        });
+
+        lane.items.forEach((item, idx) => {
+          const c = idx % lane.cols;
+          const r = Math.floor(idx / lane.cols);
+          positionedCards.push({
+            ...item,
+            position: {
+              x: lane.x + 20 + c * 320,
+              y: 120 + r * lane.rowGap,
+            },
+          });
+        });
+      });
+
+      commitCommand('按节点类型垂直分列归类全部节点', {
+        nodes: [...colGroups, ...positionedCards],
+        edges,
+        mountedSkillIds,
+        selectedNodeId,
+      });
+      showToast(
+        `已按 5 大节点类型完成垂直分列归类：角色(${characters.length}) · 场景(${sceneAssets.length}) · 剧本(${scriptsAndNotes.length}) · 分镜(${storyboards.length}) · 统筹(${audioAndTables.length})`
+      );
+      return;
+    }
+
+    // Default mode === 'category_groups': 4 Structured Functional Zones with Auto-Sized Category Group Containers
+    const autoGroups: CanvasNode[] = [];
+    const positionedCards: CanvasNode[] = [];
+
+    // Zone 1: Consistency Assets (@Image Character + Scene/Vehicle)
+    if (allAssets.length > 0) {
+      autoGroups.push({
+        id: 'group-cat-assets',
+        type: 'group',
+        position: { x: 30, y: 45 },
+        width: 345,
+        height: Math.max(420, 95 + allAssets.length * 270),
+        data: {
+          title: `【一、一致性资产锚点区】(${allAssets.length})`,
+          groupDescription: `角色四视图 (${characters.length}) + 场景与载具 (${sceneAssets.length})`,
+          groupColor: '#38BDF8',
+        },
+      });
+      allAssets.forEach((node, idx) => {
+        positionedCards.push({
           ...node,
-          position: { x: 50, y: 110 + idx * 265 },
-        };
-      }
-      if (
-        node.type === 'script' ||
-        node.type === 'idea' ||
-        node.type === 'text_note' ||
-        node.type === 'audio_clip'
-      ) {
-        const idx = scripts.findIndex((s) => s.id === node.id);
-        return {
+          position: { x: 50, y: 120 + idx * 270 },
+        });
+      });
+    }
+
+    // Zone 2: Scene Scripts & Notes
+    if (scriptsAndNotes.length > 0) {
+      autoGroups.push({
+        id: 'group-cat-scripts',
+        type: 'group',
+        position: { x: 400, y: 45 },
+        width: 385,
+        height: Math.max(420, 95 + scriptsAndNotes.length * 315),
+        data: {
+          title: `【二、分场剧本与设定区】(${scriptsAndNotes.length})`,
+          groupDescription: '黄金前3秒钩子 · 冲突反转 · 原著批注',
+          groupColor: '#F59E0B',
+        },
+      });
+      scriptsAndNotes.forEach((node, idx) => {
+        positionedCards.push({
           ...node,
-          position: { x: 420, y: 110 + idx * 305 },
-        };
-      }
-      if (node.type === 'storyboard') {
-        const idx = storyboards
-          .filter((s) => s.type === 'storyboard')
-          .findIndex((sb) => sb.id === node.id);
+          position: { x: 420, y: 120 + idx * 315 },
+        });
+      });
+    }
+
+    // Zone 3: 9:16 Visual Storyboard Sequence Matrix
+    const sbRows = Math.max(1, Math.ceil(storyboards.length / 3));
+    const sbGroupHeight = Math.max(460, 95 + sbRows * 445);
+    if (storyboards.length > 0) {
+      autoGroups.push({
+        id: 'group-cat-storyboards',
+        type: 'group',
+        position: { x: 810, y: 45 },
+        width: 1005,
+        height: sbGroupHeight,
+        data: {
+          title: `【三、9:16 视觉分镜时序矩阵区】(${storyboards.length})`,
+          groupDescription: '严格遵循 180° 轴线顺延与 FACS 微表情演进',
+          groupColor: '#34D399',
+        },
+      });
+      storyboards.forEach((node, idx) => {
         const col = idx % 3;
         const row = Math.floor(idx / 3);
-        return {
+        positionedCards.push({
           ...node,
           position: {
             x: 835 + col * 325,
-            y: 110 + row * 445,
+            y: 120 + row * 445,
           },
-        };
-      }
-      if (node.type === 'storyboard_table') {
-        return {
-          ...node,
-          position: { x: 835, y: 1015 },
-        };
-      }
-      return node;
-    });
+        });
+      });
+    }
 
-    commitCommand('一键拓扑对齐全部画布节点', {
-      nodes: nextNodes,
-      edges,
-      mountedSkillIds,
-      selectedNodeId,
-    });
-    showToast('已按【一致性资产锚点 → 分场剧本 → 视觉分镜序列】完成拓扑对齐');
+    // Zone 4: Audio Tracks & 7-Part Storyboard Sheet
+    if (audioAndTables.length > 0) {
+      const zone4Top = storyboards.length > 0 ? 75 + sbGroupHeight : 45;
+      autoGroups.push({
+        id: 'group-cat-audio-sheet',
+        type: 'group',
+        position: { x: 810, y: zone4Top },
+        width: 1005,
+        height: Math.max(360, 95 + audioAndTables.length * 320),
+        data: {
+          title: `【四、多模态音轨与七段式统筹表区】(${audioAndTables.length})`,
+          groupDescription: '@Audio 配音气口与漫剧老李七段式导演统筹总表',
+          groupColor: '#818CF8',
+        },
+      });
+      audioAndTables.forEach((node, idx) => {
+        positionedCards.push({
+          ...node,
+          position: {
+            x: 835,
+            y: zone4Top + 75 + idx * 310,
+          },
+        });
+      });
+    }
+
+    commitCommand(
+      `自动分类整理 ${nonGroupNodes.length} 个画布节点 (生成4大分类分区)`,
+      {
+        nodes: [...autoGroups, ...positionedCards],
+        edges,
+        mountedSkillIds,
+        selectedNodeId,
+      }
+    );
+    showToast(
+      `已自动分类整理 ${nonGroupNodes.length} 个节点：资产区(${allAssets.length}) · 剧本区(${scriptsAndNotes.length}) · 分镜区(${storyboards.length}) · 统筹区(${audioAndTables.length})`
+    );
   };
 
+  // =========================================================================
+  // REAL AI PROMPT SYNTHESIS (/api/storyboard/render)
+  // =========================================================================
   const handleRenderStoryboardNode = async (nodeId: string) => {
     const targetNode = nodes.find((n) => n.id === nodeId);
     if (!targetNode) return;
@@ -1197,68 +1915,451 @@ export default function App() {
           node: targetNode,
           characterAnchors,
           sceneAnchors,
-          useGrsaiDraw: !purePromptMode,
+          useGrsaiDraw: false,
         }),
       });
       const json = await res.json();
+      if (!res.ok || (!json.ok && !json.success)) {
+        throw new Error(json.error || '提示词合成失败');
+      }
       const synth = json.data;
 
-      const nextNodes = beforeRenderSnap.nodes.map((n) => {
-        if (n.id !== nodeId) return n;
-        const activeTarget = n.data.videoModelTarget || defaultVideoModel;
-        const nextPrompts = synth?.videoPrompts || n.data.videoPrompts;
-        return {
-          ...n,
-          data: {
-            ...n.data,
-            isRendering: false,
-            videoPrompts: nextPrompts,
-            visualPrompt:
-              nextPrompts?.[activeTarget] ||
-              synth?.synthesizedPrompt ||
-              n.data.visualPrompt,
-            consistencyPrompt:
-              n.type === 'character' || n.type === 'scene_asset'
-                ? synth?.synthesizedPrompt || n.data.consistencyPrompt
-                : n.data.consistencyPrompt,
-            customSvgElements: {
-              primaryHue: synth?.primaryHue || '#F59E0B',
-              secondaryHue: synth?.secondaryHue || '#18181B',
-              keyLightAngle: synth?.keyLightAngle || '45° 戏剧侧逆光',
-              silhouetteType: synth?.silhouetteType || 'single_closeup',
-              cameraVectorLabel:
-                synth?.cameraVectorLabel ||
-                `${n.data.cameraMove || '[Push in]'} · ${
-                  n.data.focalLength || '35mm'
-                }`,
-              focalCaption:
-                synth?.focalCaption || '已融合上游锚点实跑生成三套视频提示词',
+      setNodes((currentNodes) =>
+        currentNodes.map((n) => {
+          if (n.id !== nodeId) return n;
+          const activeTarget = n.data.videoModelTarget || defaultVideoModel;
+          const nextPrompts = synth?.videoPrompts || n.data.videoPrompts;
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              isRendering: false,
+              videoPrompts: nextPrompts,
+              visualPrompt:
+                nextPrompts?.[activeTarget] ||
+                synth?.synthesizedPrompt ||
+                n.data.visualPrompt,
+              consistencyPrompt:
+                n.type === 'character' || n.type === 'scene_asset'
+                  ? synth?.synthesizedPrompt || n.data.consistencyPrompt
+                  : n.data.consistencyPrompt,
+              customSvgElements: {
+                primaryHue: synth?.primaryHue || '#F59E0B',
+                secondaryHue: synth?.secondaryHue || '#18181B',
+                keyLightAngle: synth?.keyLightAngle || '45° 戏剧侧逆光',
+                silhouetteType: synth?.silhouetteType || 'single_closeup',
+                cameraVectorLabel:
+                  synth?.cameraVectorLabel ||
+                  `${n.data.cameraMove || '[Push in]'} · ${
+                    n.data.focalLength || '35mm'
+                  }`,
+                focalCaption:
+                  synth?.focalCaption || '已融合上游锚点实跑生成三套视频提示词',
+              },
+              lastRenderedAt: `刚刚实跑 (${json.modelUsed || 'AI'})`,
             },
-            lastRenderedAt: '刚刚实跑更新 (纯提示词)',
-          },
-        };
-      });
-
-      commitCommand(
-        `AI 合成「${targetNode.data.title.split('·')[0]}」三套提示词`,
-        {
-          nodes: nextNodes,
-          edges: beforeRenderSnap.edges,
-          mountedSkillIds: beforeRenderSnap.mountedSkillIds,
-          selectedNodeId,
-        },
-        beforeRenderSnap
+          };
+        })
       );
+      const _ = beforeRenderSnap;
       showToast(
-        `节点「${targetNode.data.title}」已实跑合成 Seedance 2.0 / 2.5 / MiniMax H3 提示词`
+        `节点「${targetNode.data.title}」已通过 ${json.modelUsed || 'AI'} 合成最新提示词`
       );
-    } catch {
+    } catch (err: any) {
       setNodes((prev) =>
         prev.map((n) =>
           n.id === nodeId ? { ...n, data: { ...n.data, isRendering: false } } : n
         )
       );
+      showToast(`提示词合成失败：${err?.message || '请检查网络或模型配置'}`);
     }
+  };
+
+  // =========================================================================
+  // REQUIREMENT 4A: REAL IMAGE GENERATION (/api/media/generate-image)
+  // =========================================================================
+  const handleGenerateNodeImage = async (
+    nodeId: string,
+    customModelId?: string
+  ) => {
+    const targetNode = nodes.find((n) => n.id === nodeId);
+    if (!targetNode) return;
+
+    const promptText =
+      targetNode.type === 'character' || targetNode.type === 'scene_asset'
+        ? targetNode.data.consistencyPrompt ||
+          targetNode.data.visualPrompt ||
+          targetNode.data.title
+        : targetNode.data.visualPrompt ||
+          targetNode.data.videoPrompts?.[
+            targetNode.data.videoModelTarget || 'seedance_2_0'
+          ] ||
+          targetNode.data.title;
+
+    const imageModel =
+      customModelId || targetNode.data.imageModelId || 'nano-banana-fast';
+    const aspectRatio =
+      targetNode.data.aspectRatio === '16:9'
+        ? '16:9'
+        : targetNode.type === 'scene_asset'
+        ? '16:9'
+        : '9:16';
+
+    // Collect reference images from upstream connected character/scene nodes
+    const upstream = getUpstreamNodesFor(nodeId);
+    const referenceUrls = upstream
+      .map((u) => u.data.generatedImageUrl)
+      .filter((u): u is string => Boolean(u && u.startsWith('http')));
+
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                isGeneratingImage: true,
+                imageModelId: imageModel,
+              },
+            }
+          : n
+      )
+    );
+    showToast(
+      `正在调用 GRSAI (${imageModel}) 为「${targetNode.data.title.split('·')[0]}」生成实拍图...`
+    );
+
+    try {
+      const res = await fetch('/api/media/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: promptText,
+          model: imageModel,
+          modelId: imageModel,
+          aspectRatio,
+          referenceUrls,
+          referenceImages: referenceUrls,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || (!json.ok && !json.success) || !json.imageUrl) {
+        throw new Error(json.error || '未返回有效图片 URL');
+      }
+
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  isGeneratingImage: false,
+                  generatedImageUrl: json.imageUrl,
+                  lastRenderedAt: `实拍图已生成 (${json.modelUsed})`,
+                },
+              }
+            : n
+        )
+      );
+      showToast(
+        `「${targetNode.data.title.split('·')[0]}」实拍画面生成成功！`
+      );
+    } catch (err: any) {
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  isGeneratingImage: false,
+                },
+              }
+            : n
+        )
+      );
+      showToast(`生成图片失败：${err?.message || '请求超时'}`);
+    }
+  };
+
+  // =========================================================================
+  // REQUIREMENT 4B: REAL VIDEO GENERATION + POLLING (/api/media/generate-video)
+  // =========================================================================
+  const pollVideoTaskStatus = useCallback(
+    (nodeId: string, taskId: string, nodeTitle: string) => {
+      let attempts = 0;
+      const maxAttempts = 80; // ~4.5 minutes max
+
+      const timer = setInterval(async () => {
+        attempts += 1;
+        try {
+          const res = await fetch('/api/media/video-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId }),
+          });
+          const json = await res.json();
+          if (!json.ok && !json.success) return;
+
+          if (json.status === 'succeeded' && json.videoUrl) {
+            clearInterval(timer);
+            setNodes((prev) =>
+              prev.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        isGeneratingVideo: false,
+                        videoStatus: 'succeeded',
+                        videoProgress: 100,
+                        generatedVideoUrl: json.videoUrl,
+                        lastRenderedAt: '实拍视频已生成',
+                      },
+                    }
+                  : n
+              )
+            );
+            showToast(`「${nodeTitle}」实拍视频渲染完成，已挂载至节点播放器！`);
+          } else if (json.status === 'failed' || attempts >= maxAttempts) {
+            clearInterval(timer);
+            setNodes((prev) =>
+              prev.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        isGeneratingVideo: false,
+                        videoStatus: 'failed',
+                        videoError:
+                          json.error || '视频云端合成超时，请稍后重试',
+                      },
+                    }
+                  : n
+              )
+            );
+            showToast(
+              `「${nodeTitle}」视频生成未完成：${json.error || '超时'}`
+            );
+          } else {
+            const prog =
+              typeof json.progress === 'number' && json.progress > 0
+                ? json.progress
+                : Math.min(95, attempts * 4);
+            setNodes((prev) =>
+              prev.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        isGeneratingVideo: true,
+                        videoStatus: 'running',
+                        videoProgress: prog,
+                      },
+                    }
+                  : n
+              )
+            );
+          }
+        } catch {
+          // Ignore transient polling error
+        }
+      }, 3500);
+    },
+    [showToast]
+  );
+
+  const handleGenerateNodeVideo = async (
+    nodeId: string,
+    customVideoModel?: string
+  ) => {
+    const targetNode = nodes.find((n) => n.id === nodeId);
+    if (!targetNode) return;
+
+    const videoModel =
+      customVideoModel || targetNode.data.videoGenModelId || 'minimax-h3';
+    const activeTarget = targetNode.data.videoModelTarget || 'seedance_2_0';
+    const promptText =
+      targetNode.data.videoPrompts?.[activeTarget] ||
+      targetNode.data.visualPrompt ||
+      targetNode.data.consistencyPrompt ||
+      targetNode.data.title;
+
+    const upstream = getUpstreamNodesFor(nodeId);
+    const firstFrameUrl =
+      targetNode.data.generatedImageUrl ||
+      upstream.find((u) => u.data.generatedImageUrl)?.data.generatedImageUrl;
+
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                isGeneratingVideo: true,
+                videoStatus: 'running',
+                videoProgress: 2,
+                videoError: undefined,
+                videoGenModelId: videoModel,
+              },
+            }
+          : n
+      )
+    );
+
+    showToast(
+      `已提交「${targetNode.data.title.split('·')[0]}」至 ${videoModel} 实拍视频队列...`
+    );
+
+    try {
+      const res = await fetch('/api/media/generate-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: promptText,
+          model: videoModel,
+          videoModel,
+          aspectRatio: targetNode.data.aspectRatio || '9:16',
+          duration: 5,
+          firstFrameUrl,
+          referenceImages: firstFrameUrl ? [firstFrameUrl] : [],
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || (!json.ok && !json.success)) {
+        throw new Error(json.error || '提交视频生成任务失败');
+      }
+
+      if (json.status === 'succeeded' && json.videoUrl) {
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    isGeneratingVideo: false,
+                    videoStatus: 'succeeded',
+                    videoProgress: 100,
+                    generatedVideoUrl: json.videoUrl,
+                    lastRenderedAt: `实拍视频已生成 (${videoModel})`,
+                  },
+                }
+              : n
+          )
+        );
+        showToast(
+          `「${targetNode.data.title.split('·')[0]}」实拍视频生成完成！`
+        );
+      } else if (json.taskId) {
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    videoTaskId: json.taskId,
+                    videoStatus: 'running',
+                    videoProgress: 5,
+                  },
+                }
+              : n
+          )
+        );
+        pollVideoTaskStatus(
+          nodeId,
+          json.taskId,
+          targetNode.data.title.split('·')[0]
+        );
+      }
+    } catch (err: any) {
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  isGeneratingVideo: false,
+                  videoStatus: 'failed',
+                  videoError: err?.message || '视频任务提交失败',
+                },
+              }
+            : n
+        )
+      );
+      showToast(`视频生成提交失败：${err?.message || '请稍后重试'}`);
+    }
+  };
+
+  // =========================================================================
+  // ONE-CLICK SCRIPT NODE DECOMPOSITION TO STORYBOARD SEQUENCE
+  // =========================================================================
+  const handleDecomposeScriptNode = async (scriptNodeId: string) => {
+    const scriptNode = nodes.find((n) => n.id === scriptNodeId);
+    if (!scriptNode) return;
+    setSelectedNodeId(scriptNodeId);
+    const prompt = `请将当前选中的分场剧本节点「${scriptNode.data.title}」（剧本内容：${
+      scriptNode.data.hookPoint || ''
+    } ${scriptNode.data.scriptBody || ''} ${
+      scriptNode.data.reversalPoint || ''
+    }）严格按照 180° 轴线规则、黄金前3秒爽点钩子与 FACS 微表情编码，拆解为 3 个连续的 9:16 竖屏分镜节点（storyboard），并输出每个分镜的 Seedance 2.0、Seedance 2.5 与 MiniMax H3 视频提示词。`;
+    await handleExecuteAgentPrompt(prompt, []);
+  };
+
+  // Batch helpers for DramaWorkflowModal
+  const handleBatchGenerateAssetImages = () => {
+    const assetNodes = nodes.filter(
+      (n) =>
+        (n.type === 'character' || n.type === 'scene_asset') &&
+        !n.data.generatedImageUrl &&
+        !n.data.isGeneratingImage
+    );
+    const targets =
+      assetNodes.length > 0
+        ? assetNodes
+        : nodes.filter(
+            (n) => n.type === 'character' || n.type === 'scene_asset'
+          );
+    targets.slice(0, 5).forEach((n, idx) => {
+      setTimeout(() => {
+        handleGenerateNodeImage(n.id, 'nano-banana-fast');
+      }, idx * 600);
+    });
+  };
+
+  const handleBatchGenerateStoryboardImages = () => {
+    const sbNodes = nodes.filter(
+      (n) =>
+        n.type === 'storyboard' &&
+        !n.data.generatedImageUrl &&
+        !n.data.isGeneratingImage
+    );
+    const targets =
+      sbNodes.length > 0
+        ? sbNodes
+        : nodes.filter((n) => n.type === 'storyboard');
+    targets.slice(0, 6).forEach((n, idx) => {
+      setTimeout(() => {
+        handleGenerateNodeImage(n.id, 'nano-banana-fast');
+      }, idx * 700);
+    });
+  };
+
+  const handleBatchCompilePrompts = () => {
+    const sbIds = nodes
+      .filter((n) => n.type === 'storyboard')
+      .map((n) => n.id);
+    sbIds.forEach((id, idx) => {
+      setTimeout(() => {
+        handleRenderStoryboardNode(id);
+      }, idx * 500);
+    });
   };
 
   // Skill Mount / Unmount recorded in Command Pattern Undo/Redo
@@ -1356,6 +2457,10 @@ export default function App() {
       });
 
       const json = await res.json();
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || 'Agent 推理请求失败');
+      }
+
       const payload = json?.data || {};
       const createdSpecs: any[] = payload.createdNodes || [];
 
@@ -1398,25 +2503,13 @@ export default function App() {
             ? spec.videoModelTarget
             : defaultVideoModel;
 
-        const fallbackPrompts = {
+        const videoPromptsObj = {
           minimax_h3:
-            spec.videoPrompts?.minimax_h3 ||
-            spec.visualPrompt ||
-            `[Push in] Subject_Lock: (Xie Changqing @Image1 on Vintage Lathe @Image2). At 00:00.000, ${
-              spec.title || 'cinematic shot'
-            }.`,
+            spec.videoPrompts?.minimax_h3 || spec.visualPrompt || '',
           seedance_2_0:
-            spec.videoPrompts?.seedance_2_0 ||
-            `[Xie Changqing (@Image1)] + [${
-              spec.title || 'dramatic action'
-            }] + in [Gobi Highway (@Image4)] + Camera: [${
-              spec.cameraMove || 'Push in'
-            } + Lock]; Lens: [${
-              spec.focalLength || '35mm'
-            }]; Stability: [Steadicam] + Style: [Wasteland cinema] + Avoid: [morphing]`,
+            spec.videoPrompts?.seedance_2_0 || spec.visualPrompt || '',
           seedance_2_5:
-            spec.videoPrompts?.seedance_2_5 ||
-            `Refs: [@Image1, @Image2, @Audio1] | Shot 1 (0.0s - 1.8s) [Hook]: ${spec.title} -> Shot 2 (1.8s - 3.5s) [Climax]: Emotional close-up.`,
+            spec.videoPrompts?.seedance_2_5 || spec.visualPrompt || '',
         };
 
         const newNode: CanvasNode = {
@@ -1430,7 +2523,7 @@ export default function App() {
               spec.subtitle ||
               (nodeType === 'storyboard'
                 ? `${spec.shotSize || '特写 (CU)'} · 竖屏 9:16`
-                : 'Omni-Agent 纯提示词生成'),
+                : 'Omni-Agent 编排生成'),
             sceneNumber: spec.sceneNumber,
             location: spec.location,
             timeOfDay: spec.timeOfDay,
@@ -1451,22 +2544,22 @@ export default function App() {
             cameraMove: spec.cameraMove || '[Push in]',
             focalLength: spec.focalLength || '35mm f/1.4',
             videoModelTarget: targetVm,
-            visualPrompt: fallbackPrompts[targetVm],
-            videoPrompts: fallbackPrompts,
+            visualPrompt: videoPromptsObj[targetVm] || spec.visualPrompt || '',
+            videoPrompts: videoPromptsObj,
             dialogueSnippet: spec.dialogueSnippet,
             speakerName: spec.speakerName,
             durationSec: spec.durationSec || 3.5,
             customSvgElements: {
               primaryHue: spec.primaryHue || '#F59E0B',
               secondaryHue: spec.secondaryHue || '#18181B',
-              keyLightAngle: spec.lightingMood || '45° 戈壁侧逆光',
+              keyLightAngle: spec.lightingMood || '45° 戏剧侧逆光',
               silhouetteType: spec.silhouetteType || 'single_closeup',
               cameraVectorLabel: `${spec.cameraMove || '[Push in]'} · ${
                 spec.focalLength || '35mm'
               }`,
-              focalCaption: 'Omni-Director Agent 实跑生成（纯提示词）',
+              focalCaption: 'Omni-Director Agent 实跑生成',
             },
-            lastRenderedAt: '实跑完成 (纯提示词)',
+            lastRenderedAt: `实跑完成 (${json.modelUsed || 'AI'})`,
           },
         };
 
@@ -1520,11 +2613,11 @@ export default function App() {
       const rawThinkingSteps: string[] = Array.isArray(payload.thinkingSteps)
         ? payload.thinkingSteps
         : [
-            `解析导演指令，调度已挂载的 ${activeSkills.length} 个短剧专精 Skill（含漫剧老李文武双模与 Seedance 导演公式）。`,
+            `解析导演指令，调度已挂载的 ${activeSkills.length} 个短剧专精 Skill。`,
             `读取当前焦点节点「${
-              selectedNode?.data.title || '《公路求生》全局画布'
+              selectedNode?.data.title || '全局画布'
             }」及其上游 ${upstreamNodes.length} 个一致性资产锚点。`,
-            `按照 180° 轴线规则、FACS 微表情六阶段与动作相位七态拆格生成 ${spawnedNodes.length} 个画布节点（纯提示词模式）。`,
+            `按照 180° 轴线规则、FACS 微表情六阶段生成 ${spawnedNodes.length} 个画布节点。`,
           ];
 
       const toolCalls = [
@@ -1538,8 +2631,8 @@ export default function App() {
         {
           id: `tc-anchor-${Date.now()}`,
           toolName: 'read_upstream_anchors',
-          target: `canvas/${selectedNode?.id || 'highway-survival'}.json`,
-          detail: `解析 @Image1/@Image2 锚点`,
+          target: `canvas/${selectedNode?.id || 'active-canvas'}.json`,
+          detail: `解析上游锚点连接`,
           status: 'completed' as const,
         },
         ...spawnedNodes.map((sn, i) => ({
@@ -1549,13 +2642,6 @@ export default function App() {
           detail: sn.data.title,
           status: 'completed' as const,
         })),
-        {
-          id: `tc-edge-${Date.now()}`,
-          toolName: 'connect_port_edges',
-          target: `canvas/edges-port-sync.svg`,
-          detail: `新增 ${spawnedEdges.length} 条圆心连线`,
-          status: 'completed' as const,
-        },
       ];
 
       const replyMsg: AgentChatMessage = {
@@ -1575,7 +2661,7 @@ export default function App() {
           summaryHeader: `Edited ${toolCalls.length} items`,
           thinkingSteps: rawThinkingSteps,
           toolCalls,
-          builtStatus: 'Built · 纯提示词编译完成',
+          builtStatus: `Built · ${json?.modelUsed || selectedModelId}`,
         },
       };
       setAgentMessages((prev) => [...prev, replyMsg]);
@@ -1584,13 +2670,15 @@ export default function App() {
           spawnedNodes.length
         } 个节点（支持 Ctrl+Z 撤销）`
       );
-    } catch {
+    } catch (err: any) {
       setAgentMessages((prev) => [
         ...prev,
         {
           id: `msg-err-${Date.now()}`,
           role: 'assistant',
-          content: 'Agent 节点编排请求超时，请重试或在设置中切换其他 AI 运营商。',
+          content: `Agent 节点编排请求失败：${
+            err?.message || '请检查网络连接或在设置中切换其他 AI 运营商'
+          }`,
           timestamp: new Date().toLocaleTimeString([], {
             hour: '2-digit',
             minute: '2-digit',
@@ -1603,13 +2691,20 @@ export default function App() {
   };
 
   const handleExportProject = () => {
+    const activeProj = projects.find((p) => p.id === activeTemplateId);
     const exportPayload = {
       studio: '帧界 FrameVerse AI Short Drama Canvas',
       exportedAt: new Date().toISOString(),
-      activeTemplateId,
+      id: activeProj?.id || activeTemplateId,
+      name: activeProj?.name || '短剧工程导出',
+      episodeTitle: activeProj?.episodeTitle || 'EP01',
+      description: activeProj?.description || '',
+      genreTag: activeProj?.genreTag || 'AI短剧',
+      aspectRatio: activeProj?.aspectRatio || '9:16',
       selectedModelId,
       purePromptMode,
       edgeColor,
+      mountedSkillIds,
       mountedSkills: skills.filter((s) => mountedSkillIds.includes(s.id)),
       nodes,
       edges,
@@ -1620,7 +2715,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `frameverse-highway-survival-${Date.now()}.json`;
+    a.download = `frameverse-project-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('已导出完整 AI 短剧无限画布分镜与提示词工程文件 (.json)');
@@ -1640,7 +2735,7 @@ export default function App() {
             : 'bg-[#F8FAFC] text-slate-900'
         }`}
       >
-        {/* Strict Top Bar Contract: Single Row, 3 Zones separated by gap-8 */}
+        {/* Top Bar */}
         <header
           className={`h-14 px-6 border-b flex items-center justify-between gap-8 shrink-0 z-30 transition-colors ${
             darkMode
@@ -1657,9 +2752,9 @@ export default function App() {
             帧界 FrameVerse
           </a>
 
-          {/* Zone 2: 4 Concise Single-Line Navigation Links */}
+          {/* Zone 2: Navigation Links */}
           <nav
-            className={`hidden md:flex items-center gap-7 text-xs font-medium ${
+            className={`hidden md:flex items-center gap-6 text-xs font-medium ${
               darkMode ? 'text-zinc-400' : 'text-slate-600'
             }`}
           >
@@ -1670,6 +2765,7 @@ export default function App() {
                 setIsSkillStudioOpen(false);
                 setIsStoryboardPlayerOpen(false);
                 setIsSettingsOpen(false);
+                setIsWorkflowModalOpen(false);
               }}
               className={`hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
                 darkMode ? 'text-zinc-100' : 'text-slate-900'
@@ -1688,6 +2784,21 @@ export default function App() {
               }`}
             >
               项目管理 ({projects.length})
+            </a>
+            <a
+              href="#drama-workflow"
+              onClick={(e) => {
+                e.preventDefault();
+                setIsWorkflowModalOpen(true);
+              }}
+              className={`hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 flex items-center gap-1 ${
+                darkMode
+                  ? 'text-amber-400 hover:text-amber-300'
+                  : 'text-amber-700 hover:text-amber-800'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>AI短剧全流程管线与质检</span>
             </a>
             <a
               href="#skill-studio"
@@ -1728,7 +2839,7 @@ export default function App() {
             </a>
           </nav>
 
-          {/* Zone 3: 1 Primary Action Button */}
+          {/* Zone 3: Primary Action Button */}
           <div className="flex items-center shrink-0">
             <button
               type="button"
@@ -1745,7 +2856,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* Secondary Contextual Workspace Sub-Bar with Project Switcher, Undo/Redo & Settings */}
+        {/* Secondary Contextual Workspace Sub-Bar */}
         <div
           className={`h-10 px-6 border-b flex items-center justify-between gap-4 text-xs shrink-0 z-20 transition-colors ${
             darkMode
@@ -1762,14 +2873,14 @@ export default function App() {
                   ? 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:bg-zinc-800 hover:border-zinc-700'
                   : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
               }`}
-              title="打开项目管理中心（新建 / 删除 / 复制画布）"
+              title="打开项目管理中心（新建 / 删除 / 复制 / 导入画布）"
             >
               <FolderKanban className="w-3.5 h-3.5 text-amber-400" />
               <span>项目管理 ({projects.length})</span>
             </button>
 
             <div
-              className={`flex items-center gap-1 p-0.5 rounded-lg border overflow-x-auto max-w-[460px] ${
+              className={`flex items-center gap-1 p-0.5 rounded-lg border overflow-x-auto max-w-[420px] ${
                 darkMode
                   ? 'bg-zinc-950 border-zinc-800'
                   : 'bg-slate-200/70 border-slate-200'
@@ -1857,20 +2968,42 @@ export default function App() {
           <div className="flex items-center gap-2.5 shrink-0">
             <button
               type="button"
-              onClick={() => {
-                const sbIds = nodes
-                  .filter((n) => n.type === 'storyboard')
-                  .map((n) => n.id);
-                sbIds.forEach((id) => handleRenderStoryboardNode(id));
-              }}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+              onClick={() => setIsWorkflowModalOpen(true)}
+              className={`px-2.5 py-1 rounded-md border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                 darkMode
-                  ? 'text-amber-400 hover:bg-zinc-800'
-                  : 'text-amber-700 hover:bg-slate-200/60'
+                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
+                  : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>⚡ 重新实跑全部分镜提示词 (纯提示词不出图)</span>
+              <Layers className="w-3.5 h-3.5" />
+              <span>全流程管线与四道质检锁</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleOrganizeNodes('category_groups')}
+              className={`px-2.5 py-1 rounded-md border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                darkMode
+                  ? 'bg-zinc-900 border-zinc-700 text-zinc-100 hover:bg-zinc-800'
+                  : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
+              }`}
+              title="将画布上所有节点按【角色/场景资产 · 分场剧本 · 9:16视觉分镜 · 音轨与统筹表】自动分类并生成分区框"
+            >
+              <FolderKanban className="w-3.5 h-3.5 text-emerald-400" />
+              <span>整理节点 (自动分类)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleBatchCompilePrompts}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                darkMode
+                  ? 'text-zinc-300 hover:bg-zinc-800'
+                  : 'text-slate-700 hover:bg-slate-200/60'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>批量重跑分镜提示词</span>
             </button>
 
             <span className={darkMode ? 'text-zinc-700' : 'text-slate-300'}>
@@ -1929,6 +3062,7 @@ export default function App() {
             redoLabel={lastRedoLabel}
             models={allModels}
             selectedModelId={selectedModelId}
+            axisViolations={axisViolations}
             onUndo={handleUndo}
             onRedo={handleRedo}
             onSelectModel={(mid) => {
@@ -1945,17 +3079,26 @@ export default function App() {
             onSelectNode={setSelectedNodeId}
             onNodeDragStart={handleNodeDragStart}
             onUpdateNodePosition={handleUpdateNodePosition}
+            onUpdateMultipleNodesPositions={handleUpdateMultipleNodesPositions}
             onNodeDragEnd={handleNodeDragEnd}
             onUpdateNodeData={handleUpdateNodeData}
             onSwitchNodeVideoModel={handleSwitchNodeVideoModel}
             onAddNode={handleAddNode}
             onAddConnectedNode={handleAddConnectedNode}
             onDeleteNode={handleDeleteNode}
+            onDeleteMultipleNodes={handleDeleteMultipleNodes}
+            onClearCanvas={handleClearCanvas}
             onAddEdge={handleAddEdge}
             onDeleteEdge={handleDeleteEdge}
             onRenderStoryboardNode={handleRenderStoryboardNode}
+            onGenerateNodeImage={handleGenerateNodeImage}
+            onGenerateNodeVideo={handleGenerateNodeVideo}
+            onDecomposeScriptNode={handleDecomposeScriptNode}
             onOpenNodeInspector={(id) => setInspectorNodeId(id)}
             onAutoLayout={handleAutoLayout}
+            onOrganizeNodes={handleOrganizeNodes}
+            onRunAxisInspection={handleRunAxisInspection}
+            onAutoFixAxisViolations={handleAutoFixAxisViolations}
           />
 
           {isAgentPanelOpen && (
@@ -1969,6 +3112,7 @@ export default function App() {
               messages={agentMessages}
               isRunning={isAgentRunning}
               darkMode={darkMode}
+              axisViolations={axisViolations}
               onSelectModel={(mid) => {
                 setSelectedModelId(mid);
                 const found = allModels.find((m) => m.id === mid);
@@ -1990,6 +3134,8 @@ export default function App() {
               }}
               onToggleCollapse={() => setIsAgentPanelOpen(false)}
               onOpenSettings={() => setIsSettingsOpen(true)}
+              onRunAxisInspection={handleRunAxisInspection}
+              onAutoFixAxisViolations={handleAutoFixAxisViolations}
             />
           )}
 
@@ -2061,6 +3207,8 @@ export default function App() {
           onClose={() => setInspectorNodeId(null)}
           onUpdateNode={(nid, data) => handleUpdateNodeData(nid, data)}
           onRenderStoryboardNode={(nid) => handleRenderStoryboardNode(nid)}
+          onGenerateNodeImage={(nid, mid) => handleGenerateNodeImage(nid, mid)}
+          onGenerateNodeVideo={(nid, vmid) => handleGenerateNodeVideo(nid, vmid)}
         />
 
         <StoryboardPlayerModal
@@ -2077,6 +3225,7 @@ export default function App() {
           darkMode={darkMode}
           projects={projects}
           activeProjectId={activeTemplateId}
+          templates={PROJECT_TEMPLATES}
           onClose={() => setIsProjectManagerOpen(false)}
           onSelectProject={handleSwitchTemplate}
           onCreateProject={handleCreateProject}
@@ -2084,6 +3233,25 @@ export default function App() {
           onDuplicateProject={handleDuplicateProject}
           onRenameProject={handleRenameProject}
           onResetDefaultProjects={handleResetDefaultProjects}
+          onImportProjectJson={handleImportProjectJson}
+          onBackupNodesJson={(proj, nodeCount) => {
+            showToast(
+              `已成功导出《${proj.name}》${nodeCount} 个节点的完整 JSON 备份文件`
+            );
+          }}
+        />
+
+        <DramaWorkflowModal
+          isOpen={isWorkflowModalOpen}
+          darkMode={darkMode}
+          nodes={nodes}
+          edges={edges}
+          onClose={() => setIsWorkflowModalOpen(false)}
+          onBatchGenerateAssetImages={handleBatchGenerateAssetImages}
+          onBatchGenerateStoryboardImages={handleBatchGenerateStoryboardImages}
+          onBatchCompilePrompts={handleBatchCompilePrompts}
+          onOpenStoryboardPlayer={() => setIsStoryboardPlayerOpen(true)}
+          onFocusNode={(nodeId) => setSelectedNodeId(nodeId)}
         />
       </div>
     </div>

@@ -90,6 +90,18 @@ export interface CanvasNodeData {
     | 'banquet_confrontation'
     | 'custom_ai';
   generatedImageUrl?: string;
+  firstFrameImageUrl?: string;
+  lastFrameImageUrl?: string;
+  generatedVideoUrl?: string;
+  videoTaskId?: string;
+  videoProgress?: number;
+  videoStatus?: 'idle' | 'running' | 'succeeded' | 'failed';
+  videoError?: string;
+  imageModelId?: string;
+  videoGenModelId?: string;
+  stylePresetId?: string;
+  stylePresetName?: string;
+  directorPresetName?: string;
   customSvgElements?: {
     primaryHue: string;
     secondaryHue: string;
@@ -104,6 +116,8 @@ export interface CanvasNodeData {
     focalCaption: string;
   };
   isRendering?: boolean;
+  isGeneratingImage?: boolean;
+  isGeneratingVideo?: boolean;
   lastRenderedAt?: string;
   // For 'audio_clip'
   audioType?: 'dialogue' | 'bgm' | 'sfx';
@@ -111,6 +125,7 @@ export interface CanvasNodeData {
   audioTranscript?: string;
   audioBpmOrMood?: string;
   voiceprintProfile?: string;
+  audioVoiceGender?: 'male' | 'female';
   // For 'storyboard_table'
   tableRows?: StoryboardTableRow[];
   // For 'group'
@@ -235,6 +250,23 @@ export interface AgentActionHistory {
   builtStatus: string;
 }
 
+export interface AxisViolationItem {
+  id: string;
+  sourceShotId: string;
+  targetShotId: string;
+  sourceTitle: string;
+  targetTitle: string;
+  sourceShotNumber: string;
+  targetShotNumber: string;
+  hasDirectEdge: boolean;
+  isSpatialJump: boolean;
+  isSemanticJump: boolean;
+  deltaX: number;
+  deltaY: number;
+  reason: string;
+  fixSuggestion: string;
+}
+
 export interface AgentChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -246,6 +278,8 @@ export interface AgentChatMessage {
   focusedNodeTitle?: string;
   spawnedNodeIds?: string[];
   actionHistory?: AgentActionHistory;
+  isAxisAlarm?: boolean;
+  axisViolations?: AxisViolationItem[];
 }
 
 export interface ProjectTemplate {

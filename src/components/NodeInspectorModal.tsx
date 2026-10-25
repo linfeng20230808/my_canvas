@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { X, Sparkles, Save, Link2, Copy, Check } from 'lucide-react';
+import {
+  X,
+  Sparkles,
+  Save,
+  Link2,
+  Copy,
+  Check,
+  Image as ImageIcon,
+  Video,
+} from 'lucide-react';
 import {
   CanvasNode,
   ShotAspectRatio,
@@ -13,7 +22,9 @@ interface NodeInspectorModalProps {
   darkMode: boolean;
   onClose: () => void;
   onUpdateNode: (nodeId: string, updatedData: CanvasNode['data']) => void;
-  onRenderStoryboardNode: (nodeId: string, useGrsaiDraw?: boolean) => void;
+  onRenderStoryboardNode: (nodeId: string) => void;
+  onGenerateNodeImage: (nodeId: string, imageModel?: string) => void;
+  onGenerateNodeVideo: (nodeId: string, videoModel?: string) => void;
 }
 
 export const NodeInspectorModal: React.FC<NodeInspectorModalProps> = ({
@@ -23,9 +34,10 @@ export const NodeInspectorModal: React.FC<NodeInspectorModalProps> = ({
   onClose,
   onUpdateNode,
   onRenderStoryboardNode,
+  onGenerateNodeImage,
+  onGenerateNodeVideo,
 }) => {
   const [formData, setFormData] = useState<CanvasNode['data'] | null>(null);
-  const [useGrsaiDraw, setUseGrsaiDraw] = useState<boolean>(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -79,7 +91,7 @@ export const NodeInspectorModal: React.FC<NodeInspectorModalProps> = ({
         >
           <div>
             <h2 className="text-sm font-semibold">
-              节点参数与视频提示词检查器 (Node Inspector)
+              节点参数与图片/视频生成器 (Node Inspector)
             </h2>
             <p
               className={`text-xs font-mono mt-0.5 ${
@@ -108,49 +120,90 @@ export const NodeInspectorModal: React.FC<NodeInspectorModalProps> = ({
         >
           {(node.type === 'character' ||
             node.type === 'scene_asset' ||
-            node.type === 'storyboard') && (
+            node.type === 'storyboard' ||
+            node.type === 'video_clip') && (
             <div className="space-y-2.5">
               <CinematicArtRenderer
-                nodeType={node.type}
-                data={formData}
+                nodeType={
+                  node.type === 'video_clip' ? 'storyboard' : node.type
+                }
+                data={node.data}
                 upstreamAnchorCount={upstreamNodes.length}
               />
-              {node.type === 'storyboard' && (
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={useGrsaiDraw}
-                      onChange={(e) => setUseGrsaiDraw(e.target.checked)}
-                      className={
-                        darkMode
-                          ? 'rounded border-zinc-600 bg-zinc-900 accent-white'
-                          : 'rounded border-slate-300 accent-slate-900'
-                      }
-                    />
-                    <span className={darkMode ? 'text-zinc-200' : 'text-slate-700'}>
-                      同时调用 GRSAI 中转站 `nano-banana-fast` 绘制实拍分镜图
-                    </span>
-                  </label>
+
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  disabled={node.data.isRendering}
+                  onClick={() => onRenderStoryboardNode(node.id)}
+                  className={`py-2 px-3 rounded-lg border font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 ${
+                    darkMode
+                      ? 'bg-zinc-900 border-zinc-700 text-zinc-100 hover:bg-zinc-800'
+                      : 'bg-slate-100 border-slate-300 text-slate-900 hover:bg-slate-200'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{node.data.isRendering ? '合成中...' : '合成提示词'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={Boolean(node.data.isGeneratingImage)}
+                  onClick={() =>
+                    onGenerateNodeImage(
+                      node.id,
+                      formData.imageModelId || 'nano-banana-fast'
+                    )
+                  }
+                  className={`py-2 px-3 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 ${
+                    node.type === 'storyboard' || node.type === 'video_clip'
+                      ? darkMode
+                        ? 'bg-sky-500/20 border border-sky-500/50 text-sky-300 hover:bg-sky-500/30'
+                        : 'bg-sky-50 border border-sky-200 text-sky-800 hover:bg-sky-100'
+                      : darkMode
+                      ? 'bg-zinc-100 text-zinc-950 hover:bg-white col-span-2'
+                      : 'bg-slate-900 text-white hover:bg-slate-800 col-span-2'
+                  }`}
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  <span>
+                    {node.data.isGeneratingImage
+                      ? '绘制中...'
+                      : node.type === 'storyboard' || node.type === 'video_clip'
+                      ? '生成首帧图'
+                      : '生成实拍定妆图'}
+                  </span>
+                </button>
+
+                {(node.type === 'storyboard' || node.type === 'video_clip') && (
                   <button
                     type="button"
-                    disabled={node.data.isRendering}
-                    onClick={() => onRenderStoryboardNode(node.id, useGrsaiDraw)}
-                    className={`w-full py-2 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                    disabled={
+                      Boolean(node.data.isGeneratingVideo) ||
+                      node.data.videoStatus === 'running'
+                    }
+                    onClick={() =>
+                      onGenerateNodeVideo(
+                        node.id,
+                        formData.videoGenModelId || 'minimax-h3'
+                      )
+                    }
+                    className={`py-2 px-3 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 ${
                       darkMode
                         ? 'bg-zinc-100 text-zinc-950 hover:bg-white'
                         : 'bg-slate-900 text-white hover:bg-slate-800'
                     }`}
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
+                    <Video className="w-3.5 h-3.5" />
                     <span>
-                      {node.data.isRendering
-                        ? '正在融合角色锚点合成画面与三套视频提示词...'
-                        : '融合上游锚点 · AI 合成画面与三套视频提示词'}
+                      {node.data.isGeneratingVideo ||
+                      node.data.videoStatus === 'running'
+                        ? `生成视频 (${node.data.videoProgress ?? 5}%)`
+                        : '生成视频'}
                     </span>
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 

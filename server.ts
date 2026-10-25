@@ -19,8 +19,8 @@ const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 const GRSAI_API_KEY =
   process.env.GRSAI_API_KEY || 'sk-fd1863a20a794caea7ef2bf3e294d7cf';
 const GRSAI_BASE_URLS = [
-  'https://grsaiapi.com/v1',
   'https://grsai.dakka.com.cn/v1',
+  'https://grsaiapi.com/v1',
 ];
 
 function getGenAIClient() {
@@ -61,7 +61,7 @@ interface CustomProviderRuntimeConfig {
 }
 
 interface UnifiedLLMCallOptions {
-  modelId: string; // e.g. 'deepseek:deepseek-chat' | 'grsai:gemini-2.5-flash' | 'custom:siliconflow:deepseek-ai/DeepSeek-V3'
+  modelId: string;
   systemInstruction: string;
   userPrompt: string;
   attachments?: Array<{
@@ -89,8 +89,12 @@ async function callOpenAICompatibleEndpoint(
     ? normalizedBase
     : `${normalizedBase}/chat/completions`;
 
-  const textAttachments = (attachments || []).filter((a) => a.kind === 'text' && a.textContent);
-  const imageAttachments = (attachments || []).filter((a) => a.kind === 'image' && a.dataUrl);
+  const textAttachments = (attachments || []).filter(
+    (a) => a.kind === 'text' && a.textContent
+  );
+  const imageAttachments = (attachments || []).filter(
+    (a) => a.kind === 'image' && a.dataUrl
+  );
 
   let combinedText = userPrompt;
   if (textAttachments.length > 0) {
@@ -119,7 +123,7 @@ async function callOpenAICompatibleEndpoint(
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 24000);
+  const timer = setTimeout(() => controller.abort(), 32000);
 
   try {
     const res = await fetch(endpointUrl, {
@@ -159,6 +163,28 @@ async function callOpenAICompatibleEndpoint(
   }
 }
 
+// Known image/video model names that cannot be used directly for /chat/completions text JSON reasoning
+const NON_TEXT_MODEL_NAMES = new Set([
+  'nano-banana-2.1',
+  'nano-banana-2',
+  'nano-banana-pro',
+  'nano-banana-fast',
+  'nano-banana-2-lite',
+  'nano-banana-pro-cl',
+  'nano-banana-2-cl',
+  'nano-banana-2-2k-cl',
+  'nano-banana-2-4k-cl',
+  'nano-banana-pro-vip',
+  'nano-banana-pro-4k-vip',
+  'gpt-image-2.5',
+  'gpt-image-2.5-sunburst',
+  'gpt-image-2.5-flare',
+  'gpt-image-2',
+  'gpt-image-2-vip',
+  'minimax-h3',
+  'agnes-video-2.5',
+]);
+
 async function callSelectedLLM(opts: UnifiedLLMCallOptions): Promise<{
   text: string;
   usedProvider: string;
@@ -166,13 +192,23 @@ async function callSelectedLLM(opts: UnifiedLLMCallOptions): Promise<{
 }> {
   const partsSplit = (opts.modelId || 'deepseek:deepseek-chat').split(':');
   const provider = partsSplit[0] || 'deepseek';
-  const rawModelName =
+  let rawModelName =
     provider === 'custom'
       ? partsSplit.slice(2).join(':') || partsSplit[1] || 'gpt-4o-mini'
       : partsSplit.slice(1).join(':') || 'deepseek-chat';
 
+  // If user selected an image/video model in the global selector while asking for text/prompt synthesis,
+  // route the text reasoning to gemini-2.5-flash on GRSAI or deepseek-chat so text generation succeeds cleanly.
+  if (NON_TEXT_MODEL_NAMES.has(rawModelName)) {
+    rawModelName = 'gemini-2.5-flash';
+  }
+
   // 0. Custom User-Configured AI Provider
-  if (provider === 'custom' && opts.customProvider?.baseUrl && opts.customProvider?.apiKey) {
+  if (
+    provider === 'custom' &&
+    opts.customProvider?.baseUrl &&
+    opts.customProvider?.apiKey
+  ) {
     const text = await callOpenAICompatibleEndpoint(
       opts.customProvider.baseUrl,
       opts.customProvider.apiKey,
@@ -189,7 +225,7 @@ async function callSelectedLLM(opts: UnifiedLLMCallOptions): Promise<{
     };
   }
 
-  // 1. DeepSeek Official API (map alias deepseek-flash -> deepseek-chat, deepseek-v4-pro -> deepseek-reasoner)
+  // 1. DeepSeek Official API
   if (provider === 'deepseek') {
     const effectiveDeepSeekModel =
       rawModelName === 'deepseek-v4-pro' || rawModelName === 'deepseek-reasoner'
@@ -213,7 +249,6 @@ async function callSelectedLLM(opts: UnifiedLLMCallOptions): Promise<{
 
   // 2. GRSAI Aggregation Relay Station
   if (provider === 'grsai') {
-    let lastErr: any = null;
     for (const baseUrl of GRSAI_BASE_URLS) {
       try {
         const text = await callOpenAICompatibleEndpoint(
@@ -226,11 +261,11 @@ async function callSelectedLLM(opts: UnifiedLLMCallOptions): Promise<{
           true
         );
         return { text, usedProvider: 'GRSAI Relay', usedModel: rawModelName };
-      } catch (e) {
-        lastErr = e;
+      } catch {
+        // Try next GRSAI node
       }
     }
-    // Fallback to DeepSeek Official if GRSAI relay is temporarily unreachable
+    // Real fallback to DeepSeek Official API if specific GRSAI model node is busy
     const fallbackText = await callOpenAICompatibleEndpoint(
       DEEPSEEK_BASE_URL,
       DEEPSEEK_API_KEY,
@@ -242,12 +277,12 @@ async function callSelectedLLM(opts: UnifiedLLMCallOptions): Promise<{
     );
     return {
       text: fallbackText,
-      usedProvider: 'GRSAI / DeepSeek Dual-Engine',
-      usedModel: rawModelName,
+      usedProvider: 'DeepSeek Official (Failover)',
+      usedModel: 'deepseek-chat',
     };
   }
 
-  // 3. Google Gemini Official SDK (with fallback to DeepSeek if GEMINI_API_KEY not injected)
+  // 3. Google Gemini Official SDK (with real DeepSeek API failover if GEMINI_API_KEY is not configured)
   try {
     const ai = getGenAIClient();
     const parts: any[] = [];
@@ -303,7 +338,7 @@ async function callSelectedLLM(opts: UnifiedLLMCallOptions): Promise<{
 
 /**
  * POST /api/models/test
- * Live connectivity & latency test for DeepSeek, GRSAI, Gemini, or Custom Provider models.
+ * Live connectivity & latency test for DeepSeek, GRSAI (Text/Image/Video), Gemini, or Custom Provider models.
  */
 app.post('/api/models/test', async (req, res) => {
   const { modelId = 'deepseek:deepseek-chat', customProvider = null } = req.body;
@@ -373,9 +408,354 @@ app.post('/api/providers/test', async (req, res) => {
 });
 
 /**
+ * POST /api/media/generate-image
+ * Real Image Generation for Character 4-View Sheets (@Image1), Scene/Vehicle Anchors (@Image2),
+ * and Storyboard First/Last Keyframes using GRSAI Image Models (nano-banana-fast, nano-banana-2.1, nano-banana-pro, gpt-image-2.5, etc.)
+ */
+app.post('/api/media/generate-image', async (req, res) => {
+  const {
+    prompt,
+    model,
+    modelId,
+    aspectRatio = '9:16',
+    referenceImages = [],
+    referenceUrls = [],
+    customProvider = null,
+  } = req.body;
+
+  if (!prompt || !String(prompt).trim()) {
+    return res.status(400).json({
+      ok: false,
+      success: false,
+      error: '生成图像需要提供有效的提示词 (Prompt)',
+    });
+  }
+
+  const rawModel = model || modelId || 'nano-banana-fast';
+  const cleanModel =
+    String(rawModel).replace(/^grsai:/, '').trim() || 'nano-banana-fast';
+  const validRatios = new Set([
+    '1:1',
+    '2:3',
+    '3:2',
+    '3:4',
+    '4:3',
+    '4:5',
+    '5:4',
+    '9:16',
+    '16:9',
+    '21:9',
+  ]);
+  const normalizedRatio = validRatios.has(aspectRatio) ? aspectRatio : '9:16';
+
+  const refs = (
+    Array.isArray(referenceUrls) && referenceUrls.length > 0
+      ? referenceUrls
+      : Array.isArray(referenceImages)
+      ? referenceImages
+      : []
+  ).filter((u: any) => typeof u === 'string' && u.startsWith('http'));
+
+  const candidateBases =
+    customProvider?.baseUrl && customProvider?.apiKey
+      ? [
+          {
+            url: customProvider.baseUrl.replace(/\/+$/, ''),
+            key: customProvider.apiKey,
+            label: customProvider.name,
+          },
+        ]
+      : GRSAI_BASE_URLS.map((u) => ({
+          url: u,
+          key: GRSAI_API_KEY,
+          label: 'GRSAI Image Engine',
+        }));
+
+  // Try requested model first, then fast fallback if model-specific failure occurs
+  const modelsToTry = Array.from(
+    new Set([cleanModel, 'nano-banana-fast', 'nano-banana-2.1'])
+  );
+
+  let lastError = '图片生成接口调用失败';
+
+  for (const tryModel of modelsToTry) {
+    for (const base of candidateBases) {
+      const endpoint = base.url.endsWith('/images/generations')
+        ? base.url
+        : `${base.url}/images/generations`;
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 55000);
+
+      try {
+        const payload: Record<string, any> = {
+          model: tryModel,
+          prompt: String(prompt).trim(),
+          size: normalizedRatio,
+        };
+        if (refs.length > 0) {
+          payload.urls = refs;
+        }
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${base.key}`,
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timer);
+
+        if (!response.ok) {
+          const errText = await response.text();
+          lastError = `HTTP ${response.status}: ${errText.slice(0, 240)}`;
+          continue;
+        }
+
+        const data: any = await response.json();
+        const imageUrl =
+          data?.data?.[0]?.url ||
+          (data?.data?.[0]?.b64_json
+            ? `data:image/png;base64,${data.data[0].b64_json}`
+            : null) ||
+          data?.results?.[0]?.url ||
+          data?.url;
+
+        if (imageUrl) {
+          return res.json({
+            ok: true,
+            success: true,
+            imageUrl,
+            modelUsed: `${base.label} · ${tryModel}`,
+            aspectRatio: normalizedRatio,
+          });
+        }
+        lastError = '接口未返回有效的图片 URL';
+      } catch (err: any) {
+        clearTimeout(timer);
+        lastError = err?.message || '图片生成请求超时';
+      }
+    }
+  }
+
+  return res.status(500).json({
+    ok: false,
+    success: false,
+    error: lastError,
+  });
+});
+
+/**
+ * POST /api/media/generate-video
+ * Real Video Generation task submission via GRSAI (/v1/api/generate) supporting MiniMax H3 (minimax-h3) and Agnes Video 2.5 (agnes-video-2.5),
+ * including Image-to-Video (I2V) reference images and audio sync.
+ */
+app.post('/api/media/generate-video', async (req, res) => {
+  const {
+    prompt,
+    model,
+    videoModel,
+    aspectRatio = '9:16',
+    resolution,
+    duration = 4,
+    firstFrameUrl,
+    referenceImages = [],
+    referenceAudios = [],
+  } = req.body;
+
+  if (!prompt || !String(prompt).trim()) {
+    return res.status(400).json({
+      ok: false,
+      success: false,
+      error: '生成视频需要提供有效的视频提示词 (Prompt)',
+    });
+  }
+
+  const rawModel = videoModel || model || 'minimax-h3';
+  const cleanModel = String(rawModel).replace(/^grsai:/, '').trim() || 'minimax-h3';
+  const effectiveModel =
+    cleanModel === 'minimax-h3' || cleanModel === 'agnes-video-2.5'
+      ? cleanModel
+      : 'minimax-h3';
+
+  // Model-specific aspectRatio & resolution rules verified against GRSAI API:
+  // - minimax-h3 requires aspectRatio: "portrait" | "landscape", resolution: "480p" | "768p" | "1080p"
+  // - agnes-video-2.5 requires aspectRatio: "9:16" | "16:9", resolution: "720p" | "1080p"
+  const isAgnes = effectiveModel === 'agnes-video-2.5';
+  const grsaiAspectRatio = isAgnes
+    ? aspectRatio === '16:9'
+      ? '16:9'
+      : '9:16'
+    : aspectRatio === '16:9'
+    ? 'landscape'
+    : 'portrait';
+
+  const grsaiResolution = isAgnes
+    ? resolution === '1080p'
+      ? '1080p'
+      : '720p'
+    : resolution || '480p';
+
+  let lastError = '视频生成任务提交失败';
+
+  const combinedImages = [
+    ...(firstFrameUrl ? [firstFrameUrl] : []),
+    ...(Array.isArray(referenceImages) ? referenceImages : []),
+  ].filter((u: any) => typeof u === 'string' && u.startsWith('http'));
+
+  for (const baseUrl of GRSAI_BASE_URLS) {
+    const endpoint = `${baseUrl.replace(/\/+$/, '')}/api/generate`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const payload: Record<string, any> = {
+        model: effectiveModel,
+        prompt: String(prompt).trim(),
+        aspectRatio: grsaiAspectRatio,
+        resolution: grsaiResolution,
+        duration: Math.min(10, Math.max(2, Math.round(Number(duration) || 4))),
+        replyType: 'async',
+      };
+
+      if (combinedImages.length > 0) {
+        payload.images = combinedImages;
+      }
+
+      const validAudios = (referenceAudios || []).filter(
+        (u: any) => typeof u === 'string' && u.startsWith('http')
+      );
+      if (validAudios.length > 0) {
+        payload.audios = validAudios;
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${GRSAI_API_KEY}`,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        const errText = await response.text();
+        lastError = `HTTP ${response.status}: ${errText.slice(0, 220)}`;
+        continue;
+      }
+
+      const data: any = await response.json();
+      const taskId = data?.id || data?.data?.id || data?.task_id;
+      const status = data?.status || data?.data?.status || 'running';
+      const immediateVideoUrl =
+        data?.results?.[0]?.url ||
+        data?.results?.[0]?.video_url ||
+        data?.data?.results?.[0]?.url ||
+        data?.data?.results?.[0]?.video_url ||
+        data?.video_url ||
+        data?.url;
+
+      if (status === 'failed') {
+        lastError = data?.error || data?.failure_reason || '视频任务创建失败';
+        continue;
+      }
+
+      if (taskId || immediateVideoUrl) {
+        return res.json({
+          ok: true,
+          success: true,
+          taskId,
+          status: immediateVideoUrl ? 'succeeded' : status,
+          videoUrl: immediateVideoUrl || undefined,
+          modelUsed: `GRSAI Video · ${effectiveModel}`,
+        });
+      }
+      lastError = '视频接口未返回有效的任务 ID';
+    } catch (err: any) {
+      clearTimeout(timer);
+      lastError = err?.message || '视频生成请求异常';
+    }
+  }
+
+  return res.status(500).json({
+    ok: false,
+    success: false,
+    error: lastError,
+  });
+});
+
+/**
+ * POST /api/media/video-status
+ * Polls GRSAI (/v1/draw/result & /v1/api/result) for async video generation progress and final MP4 URL.
+ */
+app.post('/api/media/video-status', async (req, res) => {
+  const { taskId } = req.body;
+  if (!taskId) {
+    return res.status(400).json({
+      ok: false,
+      success: false,
+      error: '缺少视频任务 ID (taskId)',
+    });
+  }
+
+  for (const baseUrl of GRSAI_BASE_URLS) {
+    for (const route of ['/draw/result', '/api/result']) {
+      const endpoint = `${baseUrl.replace(/\/+$/, '')}${route}`;
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${GRSAI_API_KEY}`,
+          },
+          body: JSON.stringify({ id: taskId }),
+        });
+
+        if (!response.ok) continue;
+        const raw: any = await response.json();
+        const body = raw?.data || raw;
+        const status = body?.status || 'running';
+        const progress = typeof body?.progress === 'number' ? body.progress : 15;
+        const results = body?.results || [];
+        const videoUrl =
+          results?.[0]?.video_url ||
+          results?.[0]?.url ||
+          body?.video_url ||
+          body?.url ||
+          null;
+        const errorMsg = body?.failure_reason || body?.error || '';
+
+        return res.json({
+          ok: true,
+          success: true,
+          taskId,
+          status,
+          progress,
+          videoUrl,
+          error: errorMsg,
+        });
+      } catch {
+        // Try next endpoint
+      }
+    }
+  }
+
+  return res.status(500).json({
+    ok: false,
+    success: false,
+    error: '无法查询视频任务状态，请稍后重试',
+  });
+});
+
+/**
  * POST /api/agent/run
- * Single Omni-Director Agent supporting dynamic model switching (DeepSeek / GRSAI / Gemini / Custom),
- * multimodal file uploads, and MiniMax H3 / Seedance 2.0 / Seedance 2.5 video prompt synthesis.
+ * Single Omni-Director Agent — 100% Real LLM Execution (Zero Mock Fallbacks).
  */
 app.post('/api/agent/run', async (req, res) => {
   const {
@@ -421,7 +801,7 @@ app.post('/api/agent/run', async (req, res) => {
     : '未单选特定节点（全局画布编排模式）';
 
   const systemInstruction = `你是「帧界 FrameVerse」AI短剧无限画布工作台的【全能导演 Agent (Omni-Director Agent)】。
-请严格遵循当前动态挂载的【短剧 Skill 技能包】规则，结合用户上传的附件（剧本/设定图）与画布上下文，在无限画布上生成结构化的新节点（只生成完整资产提示词与视频提示词，无需生成真实图片）。
+请严格遵循当前动态挂载的【短剧 Skill 技能包】规则，结合用户上传的附件（剧本/设定图）与画布上下文，在无限画布上生成结构化的新节点。
 
 当前已动态挂载的短剧 Skill 技能包：
 ${skillsPromptBlock || '默认全能短剧导演模式'}
@@ -442,9 +822,9 @@ ${upstreamContextBlock}
 请严格只输出合法的 JSON 对象（不要输出多余解释文字），JSON 结构如下：
 {
   "thinkingSteps": [
-    "1. Skill Check: 识别当前指令并挂载『漫剧老李·文武双模分镜 Skill』与『Seedance 2.0/2.5 导演 Skill』",
-    "2. 上游锚点解析: 读取 @Image1 角色骨相服化道、@Image2 载具/道具锚点与场景色温基准，锁死 180° 拍摄轴线与站位",
-    "3. 文武双模与提示词质检: 执行 FACS 微表情六阶段 / 动作七态拆格，同步编译 Seedance 2.0/2.5 与 MiniMax H3 提示词"
+    "1. Skill Check: 识别用户指令与挂载的短剧 Skill 规则",
+    "2. 资产与轴线解析: 提取角色(@Image1)、场景(@Image2)特征并锁死 180° 拍摄轴线",
+    "3. 节点与提示词编译: 生成对应画布节点并编译 Seedance 2.0/2.5 与 MiniMax H3 提示词"
   ],
   "agentReply": "导演Agent执行总结说明",
   "createdNodes": [
@@ -452,7 +832,7 @@ ${upstreamContextBlock}
       "type": "storyboard | script | character | scene_asset",
       "title": "节点主标题",
       "subtitle": "副标题",
-      "sceneNumber": "EP01-SC02",
+      "sceneNumber": "EP01-SC01",
       "location": "场景地点",
       "timeOfDay": "时间",
       "hookPoint": "黄金前3秒爽点",
@@ -462,7 +842,7 @@ ${upstreamContextBlock}
       "consistencyPrompt": "跨镜头锁脸/锁载具/锁环境固定特征词 (中英双语)",
       "costumeDetails": "服化道或机械结构细节",
       "lightingMood": "光影基调",
-      "shotNumber": "SHOT 07",
+      "shotNumber": "SHOT 01",
       "aspectRatio": "9:16",
       "shotSize": "极特写 (ECU) / 越肩中近景 (OTS)",
       "cameraMove": "[Push in, Tilt up]",
@@ -497,67 +877,24 @@ ${upstreamContextBlock}
 
     const parsed = extractJsonObject(llmResult.text);
     return res.json({
+      ok: true,
       success: true,
       modelUsed: `${llmResult.usedProvider} · ${llmResult.usedModel}`,
       data: parsed,
     });
   } catch (err: any) {
-    console.warn('Agent LLM fallback triggered:', err?.message || err);
-    const activeSkillNames =
-      mountedSkills.map((s: any) => s.name).join(' + ') || '全能导演基础技能';
-    const preferredVideoModel =
-      mountedSkills.find((s: any) => s.targetVideoModel)?.targetVideoModel ||
-      'seedance_2_0';
-
-    const shotPrompts = {
-      minimax_h3:
-        '[Push in, Pan right] Subject_Lock: (Xie Changqing @Image1, 24yo mechanic on vintage cast-iron lathe @Image2). Position_Lock: (Left-foreground lathe workbench facing right desert highway). At 00:00.000, Xie Changqing places the white Wooden Longbow blueprint onto the lathe chuck; golden S-rank Perfect Crafting light erupts. [Shot Cut] At 00:01.200, in 1.0 second flat, a masterwork glowing recurve longbow with 999 durability materializes.',
-      seedance_2_0:
-        '[Xie Changqing (@Image1: 24yo East Asian mechanic in dark grey work jacket) & Vintage Cast-Iron Lathe (@Image2: 3-jaw chuck, mechanical arm, mini furnace)] + [inserts Wooden Longbow blueprint and triggers 1-second S-Rank Perfect Crafting golden burst, FACS AU6/AU12 confident smirk] + in [Gobi 4-Lane Survival Highway (@Image4: swirling sandstorm, 4500K sun)] + Camera: [Rapid Orbit + Push-in, Fast speed, Subject Lock: mechanical arm & glowing bow]; Lens: [35mm f/1.4 Anamorphic]; Stability: [Dynamic gimbal] + Style: [Wasteland industrial blockbusters, golden crafting particles] + Avoid: [deformed hands, broken mechanical gears, axis jump]',
-      seedance_2_5:
-        'Refs: [@Image1 (Xie Changqing Lock), @Image2 (Vintage Lathe Lock), @Image4 (Gobi Highway), @Audio1 (1s Crafting Chime & Metallic Clank)] | [站位声明: 谢长清居左前景操控车床，面向右侧戈壁公路，严格遵守180°轴线] | Shot 1 (0.0s - 1.2s) [1-Second Miracle]: Close-up on mechanical arm clamping iron ingots & wood as S-Rank golden aura flashes for 1 second. -> Shot 2 (1.2s - 3.5s) [Climax Reveal]: Xie Changqing lifts the Masterwork Wooden Longbow (Durability 999/999) with a sharp smirk | Avoid: [崩脸, 越轴]',
-    };
-
-    return res.json({
-      success: true,
-      modelUsed: modelId,
-      data: {
-        thinkingSteps: [
-          '1. Skill Check: 挂载『漫剧老李·文武双模分镜 Skill』与『Seedance 2.0/2.5 导演 Skill』',
-          '2. 锚点联动: 读取 @Image1(谢长清) 与 @Image2(1级老式普通车床) 一致性资产词，锁定180°拍摄轴线',
-          '3. 纯提示词编译: 生成 S级完美制造1秒搓出「巧夺天工·木质长弓」的9:16分镜节点与三套视频提示词',
-        ],
-        agentReply: `已通过【${activeSkillNames}】结合上游《公路求生》剧本与角色/车床锚点，生成新的 9:16 分镜节点并编译完成 Seedance 2.0、Seedance 2.5 与 MiniMax H3 全部视频提示词（纯提示词模式，未触发出图）。`,
-        createdNodes: [
-          {
-            type: 'storyboard',
-            title: 'SHOT 07 · 车床1秒神装：巧夺天工木质长弓出炉',
-            subtitle: 'S级完美制造联动高潮 · 竖屏 9:16',
-            shotNumber: 'SHOT 07',
-            aspectRatio: '9:16',
-            shotSize: '近景转极特写 (MCU → ECU)',
-            cameraMove: '[Push in, Pan right]',
-            focalLength: '35mm f/1.4 Anamorphic',
-            videoModelTarget: preferredVideoModel,
-            visualPrompt: shotPrompts[preferredVideoModel as keyof typeof shotPrompts],
-            videoPrompts: shotPrompts,
-            dialogueSnippet: '“1秒钟，巧夺天工品质、满耐久999的木质长弓——就问还有谁？”',
-            speakerName: '谢长清',
-            durationSec: 3.5,
-            primaryHue: '#F59E0B',
-            secondaryHue: '#18181B',
-            silhouetteType: 'action_dynamic',
-          },
-        ],
-      },
+    return res.status(500).json({
+      ok: false,
+      success: false,
+      error: `Agent 模型调用失败：${err?.message || '请检查模型或网络连接'}`,
     });
   }
 });
 
 /**
  * POST /api/storyboard/render
- * Synthesizes upstream Character Consistency Anchors + Scene/Vehicle Anchors + Shot Camera settings
- * into MiniMax H3, Seedance 2.0, and Seedance 2.5 video prompts (Pure Prompt Synthesis, no image generation by default).
+ * Real LLM synthesis of upstream Character Consistency Anchors + Scene Anchors + Style/Director Presets
+ * into MiniMax H3, Seedance 2.0, and Seedance 2.5 prompts (Zero Mock Fallbacks).
  */
 app.post('/api/storyboard/render', async (req, res) => {
   const {
@@ -579,21 +916,28 @@ app.post('/api/storyboard/render', async (req, res) => {
     const llmResult = await callSelectedLLM({
       modelId,
       customProvider,
-      systemInstruction: `你是专业 AI 视频导演与分镜提示词编译器（漫剧老李 + Seedance 2.0/2.5 + MiniMax H3）。请结合上游角色锁脸锚点与场景/载具锚点，为当前节点同时合成 MiniMax H3、Seedance 2.0、Seedance 2.5 三套标准视频提示词及一致性资产提示词（纯提示词模式，不出图）。严格只返回 JSON 对象。`,
+      systemInstruction: `你是专业 AI 视频导演与分镜提示词编译器（漫剧老李 + Seedance 2.0/2.5 + MiniMax H3）。请结合上游角色锁脸锚点与场景/载具锚点，为当前节点同时合成 MiniMax H3、Seedance 2.0、Seedance 2.5 三套标准视频提示词及一致性资产提示词。严格只返回合法的 JSON 对象。`,
       userPrompt: `节点标题：${node?.data?.title}
 节点类型：${node?.type}
 画幅比例：${node?.data?.aspectRatio || '9:16'}
 景别：${node?.data?.shotSize || '特写 (CU)'}
 运镜：${node?.data?.cameraMove || '[Push in]'}
 焦段：${node?.data?.focalLength || '35mm f/1.4'}
-当前提示词或内容：${node?.data?.visualPrompt || node?.data?.consistencyPrompt || node?.data?.scriptBody || ''}
+视觉风格：${node?.data?.stylePresetName || '高对比电影感短剧'}
+导演预设：${node?.data?.directorPresetName || '180°轴线与FACS微表情'}
+当前提示词或内容：${
+        node?.data?.visualPrompt ||
+        node?.data?.consistencyPrompt ||
+        node?.data?.scriptBody ||
+        ''
+      }
 台词：${node?.data?.dialogueSnippet || ''}
-上游角色/载具锚点：${combinedCharacterPrompt || '谢长清 (@Image1) + 老式普通车床 (@Image2)'}
-上游场景空间锚点：${combinedScenePrompt || '戈壁四车道求生公路 (@Image4)'}
+上游角色/载具锚点：${combinedCharacterPrompt || '无'}
+上游场景空间锚点：${combinedScenePrompt || '无'}
 
 请返回如下 JSON 格式：
 {
-  "synthesizedPrompt": "融合角色与场景锚点的主提示词",
+  "synthesizedPrompt": "融合角色、场景与风格的完整主提示词",
   "videoPrompts": {
     "minimax_h3": "[Push in, ...] Subject_Lock: (...) Position_Lock: (...) At 00:00.000 ... [Shot Cut] At 00:02.000 ...",
     "seedance_2_0": "[Subject (@Image1)] + [Action + FACS] + in [Environment (@Image2)] + Camera: [Move + Speed + Lock]; Lens: [Focal]; Stability: [Mode] + Style: [Lighting] + Avoid: [Constraints]",
@@ -601,7 +945,7 @@ app.post('/api/storyboard/render', async (req, res) => {
   },
   "primaryHue": "#F59E0B",
   "secondaryHue": "#0F172A",
-  "keyLightAngle": "45° 戈壁烈日侧逆光 + 系统蓝光映射",
+  "keyLightAngle": "主光源色温与角度描述",
   "silhouetteType": "single_closeup | two_person_ots | dramatic_eyes | action_dynamic",
   "cameraVectorLabel": "[Push in] · 35mm",
   "focalCaption": "已通过大模型实跑合成三套视频提示词与资产锁"
@@ -610,55 +954,23 @@ app.post('/api/storyboard/render', async (req, res) => {
 
     const parsed = extractJsonObject(llmResult.text);
     return res.json({
+      ok: true,
       success: true,
       modelUsed: `${llmResult.usedProvider} · ${llmResult.usedModel}`,
       data: parsed,
     });
-  } catch {
-    const charLock =
-      combinedCharacterPrompt ||
-      'Xie Changqing (@Image1: 24yo East Asian mechanic in dark grey work jacket)';
-    const sceneLock =
-      combinedScenePrompt ||
-      'Desolate 4-lane Gobi desert survival highway (@Image4) with vintage cast-iron lathe (@Image2)';
-    const move = node?.data?.cameraMove || '[Push in]';
-    const focal = node?.data?.focalLength || '35mm f/1.4';
-
-    const videoPrompts = {
-      minimax_h3: `${
-        move.startsWith('[') ? move : `[${move}]`
-      } Subject_Lock: (${charLock}). Position_Lock: (180-degree axis locked). At 00:00.000, camera executes ${move} capturing ${
-        node?.data?.title || 'dramatic survival action'
-      }. [Shot Cut] At 00:02.000, focus locks onto FACS micro-expression under high-contrast wasteland light.`,
-      seedance_2_0: `[${charLock}] + [${
-        node?.data?.title || 'performs intense action'
-      }] + in [${sceneLock}] + Camera: [${move} + Medium speed + Subject Lock: face & lathe]; Lens: [${focal}]; Stability: [Steadicam] + Style: [Wasteland survival cinema, 4500K sun vs 6500K holographic UI] + Avoid: [facial morphing, off-model costume, axis jump]`,
-      seedance_2_5: `Refs: [@Image1 (${charLock}), @Image2 (${sceneLock}), @Audio1 (Wasteland Wind & System UI Sync)] | [站位声明: 严格锁定180°轴线] | Shot 1 (0.0s - 1.8s) [Visual Hook]: ${
-        node?.data?.shotSize || 'Close-up'
-      }, ${move} establishing tension. -> Shot 2 (1.8s - ${
-        node?.data?.durationSec || 3.5
-      }s) [Climax Reversal]: Rack focus to micro-expression as dialogue lands | Avoid: [崩脸, 越轴]`,
-    };
-
-    return res.json({
-      success: true,
-      data: {
-        synthesizedPrompt: videoPrompts.seedance_2_0,
-        videoPrompts,
-        primaryHue: '#F59E0B',
-        secondaryHue: '#0F172A',
-        keyLightAngle: '45° 戈壁烈日逆光 + 全息面板冷蓝光',
-        silhouetteType: 'single_closeup',
-        cameraVectorLabel: `${move} · ${focal}`,
-        focalCaption: '已合成 Seedance 2.0 / 2.5 / MiniMax H3 提示词',
-      },
+  } catch (err: any) {
+    return res.status(500).json({
+      ok: false,
+      success: false,
+      error: `提示词合成失败：${err?.message || '请稍后重试'}`,
     });
   }
 });
 
 /**
  * POST /api/skill/test
- * Sandbox endpoint for testing custom or video-model Drama Skills using the selected LLM.
+ * Real LLM sandbox endpoint for testing custom or video-model Drama Skills (Zero Mock Fallbacks).
  */
 app.post('/api/skill/test', async (req, res) => {
   const {
@@ -673,20 +985,19 @@ app.post('/api/skill/test', async (req, res) => {
       modelId,
       customProvider,
       systemInstruction: `你正在运行短剧 Skill 沙盒测试。\nSkill 名称：${skill?.name}\nSkill 分类：${skill?.category}\n产出节点类型：${skill?.outputNodeType}\n语法公式：${skill?.promptSyntaxFormula || '标准结构化输出'}\n核心规则指令：\n${skill?.systemInstruction}`,
-      userPrompt: `测试输入上下文：\n${sampleInput}\n\n请严格按照你的 Skill 系统规则与视频提示词格式输出结构化短剧创作结果（纯提示词，不出图）。`,
+      userPrompt: `测试输入上下文：\n${sampleInput}\n\n请严格按照你的 Skill 系统规则与视频提示词格式输出结构化短剧创作结果。`,
     });
     return res.json({
+      ok: true,
       success: true,
       modelUsed: `${result.usedProvider} · ${result.usedModel}`,
       output: result.text || 'Skill 执行完成。',
     });
-  } catch {
-    return res.json({
-      success: true,
-      modelUsed: modelId,
-      output: `【Skill 沙盒仿真输出 — ${skill?.name}】\n- 匹配目标节点类型: [${skill?.outputNodeType}]\n- 视频语法公式校验: ${
-        skill?.promptSyntaxFormula || '已通过'
-      }\n- 生成结果预览:\n  [Push in, Tilt down] Subject_Lock: (Xie Changqing @Image1 on Vintage Lathe @Image2). At 00:00.000, rapid push-in to S-Rank Perfect Crafting holographic panel on Gobi highway.`,
+  } catch (err: any) {
+    return res.status(500).json({
+      ok: false,
+      success: false,
+      error: `Skill 沙盒实跑失败：${err?.message || '请检查模型或输入内容'}`,
     });
   }
 });
