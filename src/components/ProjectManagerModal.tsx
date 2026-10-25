@@ -15,12 +15,18 @@ import {
   Download,
   FileJson,
   RotateCcw,
+  Camera,
+  Loader2,
 } from 'lucide-react';
 import {
   CanvasProject,
   ProjectTemplate,
   ShotAspectRatio,
 } from '../types/canvas';
+import {
+  exportProjectPanoramaPng,
+  SnapshotExportResult,
+} from '../utils/canvasSnapshotExporter';
 
 interface ProjectManagerModalProps {
   isOpen: boolean;
@@ -48,7 +54,12 @@ interface ProjectManagerModalProps {
   onDeleteProject: (projectId: string) => void;
   onResetDefaultProjects?: () => void;
   onImportProjectJson?: (project: CanvasProject) => void;
-  onBackupNodesJson?: (project: CanvasProject) => void;
+  onBackupNodesJson?: (project: CanvasProject, nodeCount: number) => void;
+  onExportCanvasSnapshot?: (
+    project: CanvasProject,
+    width: number,
+    height: number
+  ) => void;
 }
 
 const GENRE_TAGS = [
@@ -75,6 +86,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
   onResetDefaultProjects,
   onImportProjectJson,
   onBackupNodesJson,
+  onExportCanvasSnapshot,
 }) => {
   const [name, setName] = useState('');
   const [episodeTitle, setEpisodeTitle] = useState('EP01 · 第一集');
@@ -94,6 +106,14 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     null
   );
   const [copiedJsonId, setCopiedJsonId] = useState<string | null>(null);
+
+  // Panoramic Snapshot (.png) Export & Preview state
+  const [exportingSnapshotId, setExportingSnapshotId] = useState<string | null>(
+    null
+  );
+  const [lastSnapshotResult, setLastSnapshotResult] = useState<
+    (SnapshotExportResult & { projectName: string }) | null
+  >(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -162,7 +182,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     URL.revokeObjectURL(url);
 
     if (onBackupNodesJson) {
-      onBackupNodesJson(proj);
+      onBackupNodesJson(proj, (proj.nodes || []).length);
     }
   };
 
@@ -171,6 +191,26 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
     navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
     setCopiedJsonId(proj.id);
     setTimeout(() => setCopiedJsonId(null), 1800);
+  };
+
+  const handleExportPanoramaPng = async (proj: CanvasProject) => {
+    if (exportingSnapshotId) return;
+    setExportingSnapshotId(proj.id);
+    try {
+      const res = await exportProjectPanoramaPng(proj, {
+        darkMode,
+        triggerDownload: true,
+      });
+      setLastSnapshotResult({
+        ...res,
+        projectName: proj.name,
+      });
+      if (onExportCanvasSnapshot) {
+        onExportCanvasSnapshot(proj, res.width, res.height);
+      }
+    } finally {
+      setExportingSnapshotId(null);
+    }
   };
 
   const handleSubmitNewProject = (e: React.FormEvent) => {
@@ -297,36 +337,19 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
             </div>
             <div className="min-w-0">
               <h2 className="text-sm font-bold tracking-tight truncate">
-                AI 短剧无限画布 · 项目管理与节点数据备份中心
+                AI 短剧无限画布 · 项目管理、全景快照与节点备份中心
               </h2>
               <p
                 className={`text-xs truncate ${
                   darkMode ? 'text-zinc-400' : 'text-slate-500'
                 }`}
               >
-                支持一键导出当前项目的『节点数据备份 (.json)』（含坐标、类型、数据载荷与连线拓扑），方便外部编辑与分析
+                支持导出高分辨率『画布全景快照 (.png)』分享剧本流程看板，或导出『节点数据备份 (.json)』用于外部拓扑分析
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Requirement 1: Primary "节点数据备份" Button for Active Project */}
-            {activeProject && (
-              <button
-                type="button"
-                onClick={() => handleDownloadNodeBackup(activeProject)}
-                className={`px-3.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                  darkMode
-                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30'
-                    : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
-                }`}
-                title={`将当前项目「${activeProject.name}」的所有节点 JSON 数据（坐标、类型、数据载荷）导出下载为 .json 文件`}
-              >
-                <FileJson className="w-3.5 h-3.5" />
-                <span>节点数据备份 (.json)</span>
-              </button>
-            )}
-
             {onImportProjectJson && (
               <>
                 <input
@@ -383,9 +406,9 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
         {/* Modal Body: 12-Column Split */}
         <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Column: Create New Canvas Form + Active Project Node Backup Card (5 cols) */}
+          {/* Left Column: Active Project Snapshot & Node Backup Card + Create New Canvas Form (5 cols) */}
           <div className="lg:col-span-5 space-y-4">
-            {/* Dedicated Active Project Node Data Backup Banner Card */}
+            {/* Unified Active Project Panorama Snapshot (.png) & Node Data Backup (.json) Card */}
             {activeProject && (
               <div
                 className={`p-4 rounded-2xl border space-y-3 ${
@@ -397,63 +420,106 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="text-xs font-bold flex items-center gap-1.5">
-                      <FileJson className="w-4 h-4 text-amber-400" />
-                      <span>当前项目 · 节点数据备份 (JSON Export)</span>
+                      <Camera className="w-4 h-4 text-amber-400" />
+                      <span>当前项目 · 画布全景快照与节点备份</span>
                     </div>
                     <p
                       className={`text-[11px] mt-0.5 leading-relaxed ${
                         darkMode ? 'text-zinc-400' : 'text-slate-600'
                       }`}
                     >
-                      包含「{activeProject.name}」全部{' '}
+                      当前激活工程「{activeProject.name}」包含{' '}
                       <span className="font-mono font-semibold text-amber-400">
                         {(activeProject.nodes || []).length}
                       </span>{' '}
-                      个节点的完整坐标 (`position.x/y`)、类型 (`type`)、数据载荷 (`data`) 及{' '}
+                      个节点与{' '}
                       <span className="font-mono font-semibold text-amber-400">
                         {(activeProject.edges || []).length}
                       </span>{' '}
-                      条连线拓扑。
+                      条拓扑连线。可一键导出 2x 高清全景 `.png` 看板图或 `.json` 节点数据备份。
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {/* Requirement 2: 画布全景快照导出 (.png) */}
                   <button
                     type="button"
-                    onClick={() => handleDownloadNodeBackup(activeProject)}
-                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    disabled={exportingSnapshotId === activeProject.id}
+                    onClick={() => handleExportPanoramaPng(activeProject)}
+                    className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 ${
                       darkMode
-                        ? 'bg-zinc-100 text-zinc-950 hover:bg-white'
-                        : 'bg-slate-900 text-white hover:bg-slate-800'
+                        ? 'bg-amber-400 text-zinc-950 hover:bg-amber-300'
+                        : 'bg-amber-500 text-slate-950 hover:bg-amber-400'
                     }`}
+                    title="将当前整个无限画布区域渲染导出为一张高分辨率 .png 预览图"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>下载当前节点数据备份 (.json)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleCopyNodeBackupJson(activeProject)}
-                    className={`py-2 px-3 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      darkMode
-                        ? 'border-zinc-700 bg-zinc-950 text-zinc-200 hover:bg-zinc-800'
-                        : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    {copiedJsonId === activeProject.id ? (
+                    {exportingSnapshotId === activeProject.id ? (
                       <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>已复制 JSON</span>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>渲染全景图中...</span>
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>复制 JSON</span>
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>画布全景快照导出 (.png)</span>
                       </>
                     )}
                   </button>
+
+                  {/* 节点数据备份 (.json) */}
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadNodeBackup(activeProject)}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      darkMode
+                        ? 'bg-zinc-950 border-zinc-700 text-zinc-100 hover:bg-zinc-800'
+                        : 'bg-white border-slate-300 text-slate-900 hover:bg-slate-100'
+                    }`}
+                    title="将当前项目的所有节点 JSON 数据（坐标、类型、数据载荷）导出为 .json 文件"
+                  >
+                    <FileJson className="w-3.5 h-3.5 text-amber-400" />
+                    <span>节点数据备份 (.json)</span>
+                  </button>
                 </div>
+
+                {/* Inline Preview of the Exported High-Res Panorama PNG */}
+                {lastSnapshotResult && (
+                  <div
+                    className={`p-2.5 rounded-xl border space-y-2 ${
+                      darkMode
+                        ? 'bg-zinc-950 border-zinc-800'
+                        : 'bg-white border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-mono font-semibold text-emerald-400">
+                        ✓ 已导出全景快照 ({lastSnapshotResult.width}×{lastSnapshotResult.height}px)
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={lastSnapshotResult.dataUrl}
+                          download={lastSnapshotResult.fileName}
+                          className="text-amber-400 hover:underline font-mono text-[10px]"
+                        >
+                          重新下载 .png
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => setLastSnapshotResult(null)}
+                          className="text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                    <img
+                      src={lastSnapshotResult.dataUrl}
+                      alt={lastSnapshotResult.projectName}
+                      className="w-full max-h-40 object-contain rounded-lg border border-zinc-800 bg-zinc-900"
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -863,21 +929,27 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                           </button>
                         )}
 
-                        {/* Per-Project Node Data Backup (.json) Button */}
+                        {/* Per-Project Panorama Snapshot (.png) Button */}
                         <button
                           type="button"
-                          onClick={() => handleDownloadNodeBackup(proj)}
-                          title="导出此画布所有节点的 JSON 数据备份（含坐标、类型、数据载荷）"
-                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+                          disabled={exportingSnapshotId === proj.id}
+                          onClick={() => handleExportPanoramaPng(proj)}
+                          title="导出此画布的高分辨率全景快照预览图 (.png)"
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 ${
                             darkMode
                               ? 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
                               : 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
                           }`}
                         >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>节点数据备份</span>
+                          {exportingSnapshotId === proj.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Camera className="w-3.5 h-3.5" />
+                          )}
+                          <span>全景快照</span>
                         </button>
 
+                        {/* Per-Project Node Data Backup (.json) Inspector Toggle */}
                         <button
                           type="button"
                           onClick={() =>
@@ -885,8 +957,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                               prev === proj.id ? null : proj.id
                             )
                           }
-                          title="展开预览或复制该项目的节点拓扑 JSON"
-                          className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                          title="查看或下载该项目的节点数据备份 (.json)"
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${
                             isPreviewingJson
                               ? darkMode
                                 ? 'border-amber-400 bg-zinc-800 text-amber-300'
@@ -896,7 +968,8 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                               : 'border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                           }`}
                         >
-                          <FileJson className="w-3.5 h-3.5" />
+                          <FileJson className="w-3.5 h-3.5 text-amber-400" />
+                          <span>JSON 备份</span>
                         </button>
 
                         <button

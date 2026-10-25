@@ -655,6 +655,13 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
     sourceNodeId?: string;
   } | null>(null);
 
+  // Track pointer world coordinates & cascade offset for keyboard shortcuts (C / S / V / Delete)
+  const lastPointerWorldPosRef = useRef<{ x: number; y: number }>({
+    x: 260,
+    y: 180,
+  });
+  const shortcutCascadeRef = useRef<number>(0);
+
   const stopInertia = useCallback(() => {
     if (inertiaFrameRef.current !== null) {
       cancelAnimationFrame(inertiaFrameRef.current);
@@ -684,6 +691,127 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
     () => new Set(selectedGroupIds),
     [selectedGroupIds]
   );
+
+  // ==========================================================================
+  // REQUIREMENT 1: KEYBOARD SHORTCUTS FOR HIGH-SPEED NODE OPERATIONS
+  // - Delete / Backspace: Delete selected node or box-selected node group
+  // - C: Create Character Anchor Node ('character') at selected/pointer position
+  // - S: Create Script Node ('script') at selected/pointer position
+  // - V: Create 9:16 Storyboard Shot Node ('storyboard') at selected/pointer position
+  // - Escape: Clear active selection / menus
+  // ==========================================================================
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      // Ignore if a modal overlay is currently open in the DOM
+      if (document.querySelector('.fixed.inset-0.z-50')) {
+        return;
+      }
+
+      // 1. Delete / Backspace -> Delete selected node(s)
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedGroupIds.length > 1) {
+          e.preventDefault();
+          if (onDeleteMultipleNodes) {
+            onDeleteMultipleNodes(selectedGroupIds);
+          } else {
+            selectedGroupIds.forEach((id) => onDeleteNode(id));
+          }
+          setSelectedGroupIds([]);
+          return;
+        }
+        if (selectedNodeId) {
+          e.preventDefault();
+          onDeleteNode(selectedNodeId);
+          setSelectedGroupIds([]);
+          return;
+        }
+      }
+
+      // 2. Escape -> Clear active wire, menus, or selection
+      if (e.key === 'Escape') {
+        setContextMenu(null);
+        setIsColorMenuOpen(false);
+        setIsOrganizeMenuOpen(false);
+        setConnectingSourceId(null);
+        setConnectStartWorldPos(null);
+        setSelectedGroupIds([]);
+        onSelectNode(null);
+        return;
+      }
+
+      // Ignore modified keys (Ctrl+C, Cmd+S, etc.)
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const getSpawnPosition = () => {
+        const step = (shortcutCascadeRef.current % 5) * 28;
+        shortcutCascadeRef.current += 1;
+
+        if (selectedNodeId) {
+          const selNode = nodeMap.get(selectedNodeId);
+          if (selNode) {
+            return {
+              x:
+                Math.round(
+                  (selNode.position.x + (selNode.width || 300) + 56 + step) / 10
+                ) * 10,
+              y: Math.round((selNode.position.y + step) / 10) * 10,
+            };
+          }
+        }
+        return {
+          x: Math.round((lastPointerWorldPosRef.current.x + step) / 10) * 10,
+          y: Math.round((lastPointerWorldPosRef.current.y + step) / 10) * 10,
+        };
+      };
+
+      const keyLower = e.key.toLowerCase();
+
+      // Press 'C' -> Quick-create Character Anchor Node (角色锚点节点)
+      if (keyLower === 'c') {
+        e.preventDefault();
+        const pos = getSpawnPosition();
+        onAddNode('character', pos.x, pos.y);
+        return;
+      }
+
+      // Press 'S' -> Quick-create Script Node (剧本节点)
+      if (keyLower === 's') {
+        e.preventDefault();
+        const pos = getSpawnPosition();
+        onAddNode('script', pos.x, pos.y);
+        return;
+      }
+
+      // Press 'V' -> Quick-create 9:16 Storyboard Node (视频分镜节点)
+      if (keyLower === 'v') {
+        e.preventDefault();
+        const pos = getSpawnPosition();
+        onAddNode('storyboard', pos.x, pos.y);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    selectedNodeId,
+    selectedGroupIds,
+    nodeMap,
+    onAddNode,
+    onDeleteNode,
+    onDeleteMultipleNodes,
+    onSelectNode,
+  ]);
 
   const handleHoverEdgeStable = useCallback((edgeId: string | null) => {
     setHoveredEdgeId(edgeId);
@@ -928,9 +1056,13 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
   };
 
   const handleMouseMoveCanvas = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Record pointer world coordinates for keyboard shortcuts (C / S / V)
+    const currentWorldPos = screenToCanvas(e.clientX, e.clientY);
+    lastPointerWorldPosRef.current = currentWorldPos;
+
     // 1. Marquee Box Selection Live Intersection
     if (marqueeBox) {
-      const worldPos = screenToCanvas(e.clientX, e.clientY);
+      const worldPos = currentWorldPos;
       setMarqueeBox((prev) =>
         prev
           ? {
@@ -1425,13 +1557,49 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
           }`}
         >
           <span className={`font-semibold ${darkMode ? 'text-zinc-100' : 'text-slate-900'}`}>
-            无限画布 (支持「框选」或按住 Shift 拖拽框选多节点同步平移 · 双击图片查看高清大图)
+            无限画布
           </span>
           <span aria-hidden="true" className={darkMode ? 'text-zinc-500' : 'text-slate-400'}>
             ·
           </span>
           <span className="font-mono tabular-nums">
             {cardNodes.length} 节点 / {edges.length} 连线
+          </span>
+          <span aria-hidden="true" className={darkMode ? 'text-zinc-600' : 'text-slate-300'}>
+            |
+          </span>
+          <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px]">
+            <span>快捷键:</span>
+            <kbd
+              className={`px-1.5 py-0.5 rounded font-mono text-[10px] border ${
+                darkMode
+                  ? 'bg-zinc-950 border-zinc-700 text-amber-300'
+                  : 'bg-slate-100 border-slate-300 text-slate-800'
+              }`}
+            >
+              C
+            </kbd>
+            <span>角色锚点</span>
+            <kbd
+              className={`px-1.5 py-0.5 rounded font-mono text-[10px] border ${
+                darkMode
+                  ? 'bg-zinc-950 border-zinc-700 text-sky-300'
+                  : 'bg-slate-100 border-slate-300 text-slate-800'
+              }`}
+            >
+              S
+            </kbd>
+            <span>剧本节点</span>
+            <kbd
+              className={`px-1.5 py-0.5 rounded font-mono text-[10px] border ${
+                darkMode
+                  ? 'bg-zinc-950 border-zinc-700 text-rose-300'
+                  : 'bg-slate-100 border-slate-300 text-slate-800'
+              }`}
+            >
+              Delete
+            </kbd>
+            <span>删除选中</span>
           </span>
           {selectedGroupIds.length > 1 && (
             <>
@@ -3336,7 +3504,13 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
 
         <button
           type="button"
-          onClick={() => onAddNode('character')}
+          onClick={() =>
+            onAddNode(
+              'character',
+              Math.round(lastPointerWorldPosRef.current.x / 10) * 10,
+              Math.round(lastPointerWorldPosRef.current.y / 10) * 10
+            )
+          }
           className={`group relative px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
             darkMode
               ? 'text-zinc-200 hover:bg-zinc-800 hover:text-white'
@@ -3344,13 +3518,30 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
           }`}
         >
           <UserCheck className="w-3.5 h-3.5" />
-          <span>+ 资产</span>
-          <span className={toolbarTooltipClass}>新建 @Image 四视图角色/载具资产节点</span>
+          <span>+ 角色锚点</span>
+          <kbd
+            className={`ml-0.5 px-1 py-0.2 rounded text-[9px] font-mono border ${
+              darkMode
+                ? 'bg-zinc-950 border-zinc-700 text-amber-300'
+                : 'bg-slate-100 border-slate-300 text-slate-700'
+            }`}
+          >
+            C
+          </kbd>
+          <span className={toolbarTooltipClass}>
+            新建 @Image 角色锚点节点 (快捷键: C)
+          </span>
         </button>
 
         <button
           type="button"
-          onClick={() => onAddNode('script')}
+          onClick={() =>
+            onAddNode(
+              'script',
+              Math.round(lastPointerWorldPosRef.current.x / 10) * 10,
+              Math.round(lastPointerWorldPosRef.current.y / 10) * 10
+            )
+          }
           className={`group relative px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
             darkMode
               ? 'text-zinc-200 hover:bg-zinc-800 hover:text-white'
@@ -3359,12 +3550,29 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
         >
           <FileText className="w-3.5 h-3.5" />
           <span>+ 剧本</span>
-          <span className={toolbarTooltipClass}>新建分场剧本节点</span>
+          <kbd
+            className={`ml-0.5 px-1 py-0.2 rounded text-[9px] font-mono border ${
+              darkMode
+                ? 'bg-zinc-950 border-zinc-700 text-sky-300'
+                : 'bg-slate-100 border-slate-300 text-slate-700'
+            }`}
+          >
+            S
+          </kbd>
+          <span className={toolbarTooltipClass}>
+            新建分场剧本节点 (快捷键: S)
+          </span>
         </button>
 
         <button
           type="button"
-          onClick={() => onAddNode('storyboard')}
+          onClick={() =>
+            onAddNode(
+              'storyboard',
+              Math.round(lastPointerWorldPosRef.current.x / 10) * 10,
+              Math.round(lastPointerWorldPosRef.current.y / 10) * 10
+            )
+          }
           className={`group relative px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
             darkMode
               ? 'text-zinc-200 hover:bg-zinc-800 hover:text-white'
@@ -3373,7 +3581,18 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
         >
           <Film className="w-3.5 h-3.5" />
           <span>+ 视频分镜</span>
-          <span className={toolbarTooltipClass}>新建 9:16 视频分镜节点</span>
+          <kbd
+            className={`ml-0.5 px-1 py-0.2 rounded text-[9px] font-mono border ${
+              darkMode
+                ? 'bg-zinc-950 border-zinc-700 text-purple-300'
+                : 'bg-slate-100 border-slate-300 text-slate-700'
+            }`}
+          >
+            V
+          </kbd>
+          <span className={toolbarTooltipClass}>
+            新建 9:16 视频分镜节点 (快捷键: V)
+          </span>
         </button>
 
         <button

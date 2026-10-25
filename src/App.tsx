@@ -2735,155 +2735,35 @@ export default function App() {
             : 'bg-[#F8FAFC] text-slate-900'
         }`}
       >
-        {/* Top Bar */}
+        {/* Unified Single Top Workspace Bar (Zero Duplicate Buttons) */}
         <header
-          className={`h-14 px-6 border-b flex items-center justify-between gap-8 shrink-0 z-30 transition-colors ${
+          className={`h-13 px-5 border-b flex items-center justify-between gap-4 shrink-0 z-30 transition-colors ${
             darkMode
-              ? 'bg-zinc-950 border-zinc-800 text-zinc-100'
-              : 'bg-white border-slate-200 text-slate-900'
+              ? 'bg-zinc-950/95 border-zinc-800 text-zinc-100'
+              : 'bg-white/95 border-slate-200 text-slate-900'
           }`}
         >
-          {/* Zone 1: Brand Title */}
-          <a
-            href="#canvas"
-            onClick={(e) => e.preventDefault()}
-            className="text-base font-bold tracking-tight whitespace-nowrap shrink-0 font-display"
-          >
-            帧界 FrameVerse
-          </a>
-
-          {/* Zone 2: Navigation Links */}
-          <nav
-            className={`hidden md:flex items-center gap-6 text-xs font-medium ${
-              darkMode ? 'text-zinc-400' : 'text-slate-600'
-            }`}
-          >
+          {/* Left Zone: Brand + Project Switcher + Single Project Manager Button */}
+          <div className="flex items-center gap-3 min-w-0">
             <a
               href="#canvas"
-              onClick={(e) => {
-                e.preventDefault();
-                setIsSkillStudioOpen(false);
-                setIsStoryboardPlayerOpen(false);
-                setIsSettingsOpen(false);
-                setIsWorkflowModalOpen(false);
-              }}
-              className={`hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
-                darkMode ? 'text-zinc-100' : 'text-slate-900'
-              }`}
+              onClick={(e) => e.preventDefault()}
+              className="text-sm font-bold tracking-tight whitespace-nowrap shrink-0 font-display flex items-center gap-2"
             >
-              无限画布工作台
+              <span className="w-6 h-6 rounded-md bg-amber-400 text-zinc-950 font-mono text-xs font-extrabold flex items-center justify-center">
+                FV
+              </span>
+              <span>帧界 FrameVerse</span>
             </a>
-            <a
-              href="#project-manager"
-              onClick={(e) => {
-                e.preventDefault();
-                setIsProjectManagerOpen(true);
-              }}
-              className={`hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
-                darkMode ? 'hover:text-zinc-100' : 'hover:text-slate-900'
-              }`}
-            >
-              项目管理 ({projects.length})
-            </a>
-            <a
-              href="#drama-workflow"
-              onClick={(e) => {
-                e.preventDefault();
-                setIsWorkflowModalOpen(true);
-              }}
-              className={`hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 flex items-center gap-1 ${
-                darkMode
-                  ? 'text-amber-400 hover:text-amber-300'
-                  : 'text-amber-700 hover:text-amber-800'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>AI短剧全流程管线与质检</span>
-            </a>
-            <a
-              href="#skill-studio"
-              onClick={(e) => {
-                e.preventDefault();
-                setSkillStudioTargetId('skill-seedance-director-suite');
-                setIsSkillStudioOpen(true);
-              }}
-              className={`hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
-                darkMode ? 'hover:text-zinc-100' : 'hover:text-slate-900'
-              }`}
-            >
-              短剧与视频模型 Skill 库 ({skills.length})
-            </a>
-            <a
-              href="#storyboard-preview"
-              onClick={(e) => {
-                e.preventDefault();
-                setIsStoryboardPlayerOpen(true);
-              }}
-              className={`hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
-                darkMode ? 'hover:text-zinc-100' : 'hover:text-slate-900'
-              }`}
-            >
-              竖屏故事板连播
-            </a>
-            <a
-              href="#settings-providers"
-              onClick={(e) => {
-                e.preventDefault();
-                setIsSettingsOpen(true);
-              }}
-              className={`hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
-                darkMode ? 'hover:text-zinc-100' : 'hover:text-slate-900'
-              }`}
-            >
-              设置与 AI 运营商 ({allModels.length})
-            </a>
-          </nav>
 
-          {/* Zone 3: Primary Action Button */}
-          <div className="flex items-center shrink-0">
-            <button
-              type="button"
-              onClick={handleExportProject}
-              className={`px-4 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                darkMode
-                  ? 'bg-zinc-100 text-zinc-950 hover:bg-white'
-                  : 'bg-slate-900 text-white hover:bg-slate-800'
-              }`}
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>导出短剧工程</span>
-            </button>
-          </div>
-        </header>
+            <span className={darkMode ? 'text-zinc-800' : 'text-slate-200'}>|</span>
 
-        {/* Secondary Contextual Workspace Sub-Bar */}
-        <div
-          className={`h-10 px-6 border-b flex items-center justify-between gap-4 text-xs shrink-0 z-20 transition-colors ${
-            darkMode
-              ? 'bg-zinc-900/95 border-zinc-800 text-zinc-200'
-              : 'bg-slate-50/90 border-slate-200/80 text-slate-700'
-          }`}
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={() => setIsProjectManagerOpen(true)}
-              className={`flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
-                darkMode
-                  ? 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:bg-zinc-800 hover:border-zinc-700'
-                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-              }`}
-              title="打开项目管理中心（新建 / 删除 / 复制 / 导入画布）"
-            >
-              <FolderKanban className="w-3.5 h-3.5 text-amber-400" />
-              <span>项目管理 ({projects.length})</span>
-            </button>
-
+            {/* Active Project Quick Switcher Pills */}
             <div
-              className={`flex items-center gap-1 p-0.5 rounded-lg border overflow-x-auto max-w-[420px] ${
+              className={`hidden sm:flex items-center gap-1 p-0.5 rounded-lg border overflow-x-auto max-w-[380px] ${
                 darkMode
-                  ? 'bg-zinc-950 border-zinc-800'
-                  : 'bg-slate-200/70 border-slate-200'
+                  ? 'bg-zinc-900 border-zinc-800'
+                  : 'bg-slate-100 border-slate-200'
               }`}
             >
               {projects.map((proj) => (
@@ -2904,148 +2784,119 @@ export default function App() {
                   {proj.name}
                 </button>
               ))}
-              <button
-                type="button"
-                onClick={() => setIsProjectManagerOpen(true)}
-                title="新建或管理短剧画布"
-                className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                  darkMode
-                    ? 'text-emerald-400 hover:bg-zinc-800'
-                    : 'text-emerald-700 hover:bg-white'
-                }`}
-              >
-                <Plus className="w-3 h-3" />
-                <span>新建/删改</span>
-              </button>
             </div>
 
-            {/* Command Pattern Undo / Redo Status in Sub-Bar */}
-            <div
-              className={`hidden lg:flex items-center gap-1 pl-2 border-l ${
-                darkMode ? 'border-zinc-800' : 'border-slate-200'
+            {/* Single Authoritative Project Manager Button */}
+            <button
+              type="button"
+              onClick={() => setIsProjectManagerOpen(true)}
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                darkMode
+                  ? 'bg-zinc-900 border-zinc-700 text-zinc-100 hover:bg-zinc-800 hover:border-zinc-600'
+                  : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
               }`}
+              title="打开项目管理中心（新建/删除画布、导出 .png 画布全景快照、导出 .json 节点数据备份）"
             >
-              <button
-                type="button"
-                disabled={undoStack.length === 0}
-                onClick={handleUndo}
-                title={
-                  lastUndoLabel
-                    ? `撤销 (Ctrl+Z)：${lastUndoLabel}`
-                    : '暂无可撤销操作'
-                }
-                className={`px-2 py-1 rounded-md flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-35 ${
-                  darkMode
-                    ? 'hover:bg-zinc-800 text-zinc-200'
-                    : 'hover:bg-slate-200/70 text-slate-700'
-                }`}
-              >
-                <Undo2 className="w-3.5 h-3.5" />
-                <span>撤销 ({undoStack.length})</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={redoStack.length === 0}
-                onClick={handleRedo}
-                title={
-                  lastRedoLabel
-                    ? `重做 (Ctrl+Y)：${lastRedoLabel}`
-                    : '暂无可重做操作'
-                }
-                className={`px-2 py-1 rounded-md flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-35 ${
-                  darkMode
-                    ? 'hover:bg-zinc-800 text-zinc-200'
-                    : 'hover:bg-slate-200/70 text-slate-700'
-                }`}
-              >
-                <Redo2 className="w-3.5 h-3.5" />
-                <span>重做 ({redoStack.length})</span>
-              </button>
-            </div>
+              <FolderKanban className="w-3.5 h-3.5 text-amber-400" />
+              <span>项目管理 · 快照与备份 ({projects.length})</span>
+            </button>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          {/* Right Zone: Core Studio Modules & Workspace Settings (Each Action Appears Once) */}
+          <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
             <button
               type="button"
               onClick={() => setIsWorkflowModalOpen(true)}
-              className={`px-2.5 py-1 rounded-md border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                 darkMode
                   ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
                   : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
-              <span>全流程管线与四道质检锁</span>
+              <span>全流程管线与质检</span>
             </button>
 
             <button
               type="button"
-              onClick={() => handleOrganizeNodes('category_groups')}
-              className={`px-2.5 py-1 rounded-md border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+              onClick={() => {
+                setSkillStudioTargetId('skill-seedance-director-suite');
+                setIsSkillStudioOpen(true);
+              }}
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                 darkMode
-                  ? 'bg-zinc-900 border-zinc-700 text-zinc-100 hover:bg-zinc-800'
-                  : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
+                  ? 'bg-zinc-900 border-zinc-800 text-zinc-200 hover:bg-zinc-800'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
               }`}
-              title="将画布上所有节点按【角色/场景资产 · 分场剧本 · 9:16视觉分镜 · 音轨与统筹表】自动分类并生成分区框"
             >
-              <FolderKanban className="w-3.5 h-3.5 text-emerald-400" />
-              <span>整理节点 (自动分类)</span>
+              <span>Skill 导演库 ({skills.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsStoryboardPlayerOpen(true)}
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                darkMode
+                  ? 'bg-zinc-900 border-zinc-800 text-zinc-200 hover:bg-zinc-800'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <span>竖屏故事板连播</span>
             </button>
 
             <button
               type="button"
               onClick={handleBatchCompilePrompts}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+              className={`hidden xl:flex px-2.5 py-1.5 rounded-lg border text-xs font-medium items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                 darkMode
-                  ? 'text-zinc-300 hover:bg-zinc-800'
-                  : 'text-slate-700 hover:bg-slate-200/60'
+                  ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
               }`}
+              title="按上游角色/场景资产重新编译全部分镜视频提示词"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>批量重跑分镜提示词</span>
+              <span>批量重跑提示词</span>
             </button>
 
-            <span className={darkMode ? 'text-zinc-700' : 'text-slate-300'}>
-              |
-            </span>
+            <span className={darkMode ? 'text-zinc-800' : 'text-slate-200'}>|</span>
 
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className={`px-2.5 py-1 rounded-md border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                 darkMode
                   ? 'bg-zinc-900 border-zinc-700 text-zinc-100 hover:bg-zinc-800'
                   : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
               }`}
             >
               <Settings className="w-3.5 h-3.5" />
-              <span>AI 运营商与设置</span>
+              <span>AI 运营商与设置 ({allModels.length})</span>
             </button>
 
             <button
               type="button"
               onClick={() => setDarkMode((d) => !d)}
-              className={`px-2.5 py-1 rounded-md border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                 darkMode
                   ? 'bg-zinc-800 border-zinc-700 text-zinc-100 hover:bg-zinc-700'
                   : 'bg-slate-200/70 border-slate-300 text-slate-800 hover:bg-slate-300/70'
               }`}
+              title="切换浅色画布 / 暗房模式"
             >
               {darkMode ? (
                 <>
                   <Sun className="w-3.5 h-3.5 text-amber-400" />
-                  <span>浅色画布</span>
+                  <span className="hidden lg:inline">浅色</span>
                 </>
               ) : (
                 <>
                   <Moon className="w-3.5 h-3.5" />
-                  <span>暗房模式</span>
+                  <span className="hidden lg:inline">暗房</span>
                 </>
               )}
             </button>
           </div>
-        </div>
+        </header>
 
         {/* Main Split Workspace */}
         <main className="flex-1 flex min-h-0 relative">
@@ -3237,6 +3088,11 @@ export default function App() {
           onBackupNodesJson={(proj, nodeCount) => {
             showToast(
               `已成功导出《${proj.name}》${nodeCount} 个节点的完整 JSON 备份文件`
+            );
+          }}
+          onExportCanvasSnapshot={(proj, width, height) => {
+            showToast(
+              `已成功导出《${proj.name}》高分辨率画布全景快照 (${width}×${height}px .png)`
             );
           }}
         />
