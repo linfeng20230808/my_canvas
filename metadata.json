@@ -1,0 +1,6 @@
+{
+  "name": "帧界 FrameVerse — AI 短剧无限画布工作台",
+  "description": "基于单一全能导演 Agent 动态挂载短剧 Skill 与融合式无限画布的 AI 短剧制作系统，支持剧本分场、角色三视图一致性资产锚点、AI 视觉分镜渲染与自定义 Skill 编辑器。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

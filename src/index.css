@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    color: #09090B;
+    background-color: #FAFAFA;
+    margin: 0;
+    padding: 0;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono, .tabular-nums {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.canvas-grid-light {
+  background-color: #FAFAFA;
+  background-image: radial-gradient(#D4D4D8 1.15px, transparent 1.15px);
+}
+
+.canvas-grid-dark {
+  background-color: #09090B;
+  background-image: radial-gradient(#27272A 1.35px, transparent 1.35px);
+}
+
+/* Dynamic path-length CSS offset animation for InfiniteCanvas edges */
+@keyframes edge-path-stream {
+  from {
+    stroke-dashoffset: var(--edge-path-length, 240px);
+  }
+  to {
+    stroke-dashoffset: 0px;
+  }
+}
+
+.edge-stream-line {
+  stroke-dasharray: 6 8;
+  stroke-dashoffset: var(--edge-path-length, 240px);
+  animation: edge-path-stream 3.2s linear infinite;
+  transition: stroke-width 150ms ease, stroke-opacity 150ms ease, stroke 150ms ease;
+}
+
+.edge-stream-line-fast {
+  stroke-dasharray: 7 7;
+  stroke-dashoffset: var(--edge-path-length, 240px);
+  animation: edge-path-stream 1.8s linear infinite;
+  transition: stroke-width 150ms ease, stroke-opacity 150ms ease, stroke 150ms ease;
+}
+
+/* Darkroom Monitor Mode high-contrast scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(161, 161, 170, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.65);
+}
